@@ -1,0 +1,1 @@
+void ope(void);
