@@ -105,6 +105,7 @@ typedef struct lua_TValue {
 /*
 ** for internal debug only
 */
+/* 检测类型的一致性 value.type和gc.tt要一致 */
 #define checkconsistency(obj) \
   lua_assert(!iscollectable(obj) || (ttype(obj) == (obj)->value.gc->gch.tt))
 
@@ -247,8 +248,8 @@ typedef struct Proto {
   int lastlinedefined;
   GCObject *gclist;
   lu_byte nups;  /* number of upvalues */
-  lu_byte numparams;
-  lu_byte is_vararg;
+  lu_byte numparams;	/* 若函数为定长参数，则表示：形参个数？ */
+  lu_byte is_vararg;	/* 不定长(数量)参数？ */
   lu_byte maxstacksize;
 } Proto;
 
@@ -345,7 +346,7 @@ typedef struct Table {
   TValue *array;  /* array part */
   Node *node;
   Node *lastfree;  /* any free position is before this position */
-  GCObject *gclist;
+  GCObject *gclist;	/* gc过程中用到，比如当前自己在gray链表中，则指向下一个gray'obj */
   int sizearray;  /* size of `array' array */
 } Table;
 

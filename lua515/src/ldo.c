@@ -282,7 +282,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
         L->top = base + p->numparams;
     }
     else {  /* vararg function */
-      int nargs = cast_int(L->top - func) - 1;
+      int nargs = cast_int(L->top - func) - 1;	/* 计算实际传入参数的个数 */
       base = adjust_varargs(L, p, nargs);
       func = restorestack(L, funcr);  /* previous call may change the stack */
     }

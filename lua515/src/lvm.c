@@ -142,7 +142,7 @@ void luaV_settable (lua_State *L, const TValue *t, TValue *key, StkId val) {
       if (!ttisnil(oldval) ||  /* result is no nil? */
           (tm = fasttm(L, h->metatable, TM_NEWINDEX)) == NULL) { /* or no TM? */
         setobj2t(L, oldval, val);
-        h->flags = 0;
+        h->flags = 0;	/* 更新flags:假设所有的tm都存在 */
         luaC_barriert(L, h, val);
         return;
       }
@@ -584,8 +584,8 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         continue;
       }
       case OP_CALL: {
-        int b = GETARG_B(i);
-        int nresults = GETARG_C(i) - 1;
+        int b = GETARG_B(i);	// 参数个数
+        int nresults = GETARG_C(i) - 1;	// 期待的返回值个数
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
         L->savedpc = pc;
         switch (luaD_precall(L, ra, nresults)) {
@@ -602,7 +602,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
           default: {
             return;  /* yield */
           }
-        }
+        } 
       }
       case OP_TAILCALL: {
         int b = GETARG_B(i);

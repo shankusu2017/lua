@@ -14,8 +14,8 @@
 /*
 ** Possible states of the Garbage Collector
 */
-#define GCSpause	0
-#define GCSpropagate	1
+#define GCSpause	0	// 暂停状态，也是初始状态
+#define GCSpropagate	1	// 遍历阶段，扫描gray NOTE:gc开始后从pause->propagate整个"gc过程"是原子的
 #define GCSsweepstring	2
 #define GCSsweep	3
 #define GCSfinalize	4
@@ -24,17 +24,17 @@
 /*
 ** some userful bit tricks
 */
-#define resetbits(x,m)	((x) &= cast(lu_byte, ~(m)))
-#define setbits(x,m)	((x) |= (m))
-#define testbits(x,m)	((x) & (m))
-#define bitmask(b)	(1<<(b))
-#define bit2mask(b1,b2)	(bitmask(b1) | bitmask(b2))
-#define l_setbit(x,b)	setbits(x, bitmask(b))
-#define resetbit(x,b)	resetbits(x, bitmask(b))
-#define testbit(x,b)	testbits(x, bitmask(b))
-#define set2bits(x,b1,b2)	setbits(x, (bit2mask(b1, b2)))
-#define reset2bits(x,b1,b2)	resetbits(x, (bit2mask(b1, b2)))
-#define test2bits(x,b1,b2)	testbits(x, (bit2mask(b1, b2)))
+#define resetbits(x,m)	((x) &= cast(lu_byte, ~(m)))	/* 清除特定的bit位 */
+#define setbits(x,m)	((x) |= (m))					/* 标记特定的bit位 */
+#define testbits(x,m)	((x) & (m))						/* 测试特定的bit位 */
+#define bitmask(b)	(1<<(b))							/* 获取某个左移N位的bit值 */
+#define bit2mask(b1,b2)	(bitmask(b1) | bitmask(b2))		/* 将1左移N位的bit值 | 将1左移M位的bit值 */
+#define l_setbit(x,b)	setbits(x, bitmask(b))			/* 将x的左移N位的bit设置为1 */
+#define resetbit(x,b)	resetbits(x, bitmask(b))	·	/* 将X的左移N位的bit设置位0 */
+#define testbit(x,b)	testbits(x, bitmask(b))			/* 测试X的左移N位是否为 1 */
+#define set2bits(x,b1,b2)	setbits(x, (bit2mask(b1, b2)))	/* 将X的左移N位，M位设置为 1 */
+#define reset2bits(x,b1,b2)	resetbits(x, (bit2mask(b1, b2)))	/* 清除X的左移N位，M位 */
+#define test2bits(x,b1,b2)	testbits(x, (bit2mask(b1, b2)))		/* 测试X的左移N位，M位是否至少有一个为1 */
 
 
 
@@ -54,27 +54,28 @@
 #define WHITE0BIT	0
 #define WHITE1BIT	1
 #define BLACKBIT	2
+
 #define FINALIZEDBIT	3
 #define KEYWEAKBIT	3
 #define VALUEWEAKBIT	4
-#define FIXEDBIT	5
-#define SFIXEDBIT	6
+#define FIXEDBIT	5	/* 保留数据，不能被GC,eg:语言关键字 */
+#define SFIXEDBIT	6	
 #define WHITEBITS	bit2mask(WHITE0BIT, WHITE1BIT)
 
 
-#define iswhite(x)      test2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)
-#define isblack(x)      testbit((x)->gch.marked, BLACKBIT)
-#define isgray(x)	(!isblack(x) && !iswhite(x))
+#define iswhite(x)      test2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)	/* 是任何一种白色吗 */
+#define isblack(x)      testbit((x)->gch.marked, BLACKBIT)	/* 是黑色吗 */
+#define isgray(x)	(!isblack(x) && !iswhite(x))	/* 不是黑，同时也不是任何一种白，则是gray */
 
-#define otherwhite(g)	(g->currentwhite ^ WHITEBITS)
-#define isdead(g,v)	((v)->gch.marked & otherwhite(g) & WHITEBITS)
+#define otherwhite(g)	(g->currentwhite ^ WHITEBITS)	/* 返回另一种白的值 */
+#define isdead(g,v)	((v)->gch.marked & otherwhite(g) & WHITEBITS)	/* 是dead(另一种白)吗 */
 
 #define changewhite(x)	((x)->gch.marked ^= WHITEBITS)
-#define gray2black(x)	l_setbit((x)->gch.marked, BLACKBIT)
+#define gray2black(x)	l_setbit((x)->gch.marked, BLACKBIT)	/* 看了isgray，应该理解这里 */
 
 #define valiswhite(x)	(iscollectable(x) && iswhite(gcvalue(x)))
 
-#define luaC_white(g)	cast(lu_byte, (g)->currentwhite & WHITEBITS)
+#define luaC_white(g)	cast(lu_byte, (g)->currentwhite & WHITEBITS)	/* 当前white的bits值 */
 
 
 #define luaC_checkGC(L) { \

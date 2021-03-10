@@ -65,9 +65,9 @@ static void removeentry (Node *n) {
     setttype(gkey(n), LUA_TDEADKEY);  /* dead key; remove it */
 }
 
-
+/* 将普通的gc数据链接到gc_gray链表上,userData,upVal有特定的逻辑，详情看代码 */
 static void reallymarkobject (global_State *g, GCObject *o) {
-  lua_assert(iswhite(o) && !isdead(g, o));
+  lua_assert(iswhite(o) && !isdead(g, o));	/* 这个前提判断相当的重要 */
   white2gray(o);
   switch (o->gch.tt) {
     case LUA_TSTRING: {
@@ -271,17 +271,17 @@ static void traversestack (global_State *g, lua_State *l) {
 
 
 /*
-** traverse one gray object, turning it to black.
+** traverse(遍历) one gray object, turning it to black.
 ** Returns `quantity' traversed.
 */
 static l_mem propagatemark (global_State *g) {
   GCObject *o = g->gray;
-  lua_assert(isgray(o));
+  lua_assert(isgray(o));	// 这个判断是非常有必要的
   gray2black(o);
   switch (o->gch.tt) {
     case LUA_TTABLE: {
       Table *h = gco2h(o);
-      g->gray = h->gclist;
+      g->gray = h->gclist;	/* 将其从gray链表中移除 */
       if (traversetable(g, h))  /* table is weak? */
         black2gray(o);  /* keep it gray */
       return sizeof(Table) + sizeof(TValue) * h->sizearray +
@@ -503,12 +503,12 @@ static void markroot (lua_State *L) {
   g->gray = NULL;
   g->grayagain = NULL;
   g->weak = NULL;
-  markobject(g, g->mainthread);
+  markobject(g, g->mainthread);	/* 将其链接到gray上(gc过程不被打断) */
   /* make global table be traversed before main stack */
   markvalue(g, gt(g->mainthread));
   markvalue(g, registry(L));
   markmt(g);
-  g->gcstate = GCSpropagate;
+  g->gcstate = GCSpropagate;	/* 进入传播阶段 */
 }
 
 
@@ -552,7 +552,7 @@ static void atomic (lua_State *L) {
   g->estimate = g->totalbytes - udsize;  /* first estimate */
 }
 
-
+/* 走一小步gc */
 static l_mem singlestep (lua_State *L) {
   global_State *g = G(L);
   /*lua_checkmemory(L);*/
