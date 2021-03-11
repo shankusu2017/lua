@@ -27,7 +27,7 @@
 */
 #define LUA_TPROTO	(LAST_TAG+1)
 #define LUA_TUPVAL	(LAST_TAG+2)
-#define LUA_TDEADKEY	(LAST_TAG+3)
+#define LUA_TDEADKEY	(LAST_TAG+3)	/* 表中nil的val对应的key则为DEADKEY */
 
 
 /*

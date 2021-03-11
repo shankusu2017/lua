@@ -65,7 +65,10 @@ static void removeentry (Node *n) {
     setttype(gkey(n), LUA_TDEADKEY);  /* dead key; remove it */
 }
 
-/* 将普通的gc数据链接到gc_gray链表上,userData,upVal有特定的逻辑，详情看代码 */
+/* 将普通的gc数据链接到gc_gray链表上,userData,upVal有特定的逻辑，详情看代码，
+** 本函数没有对对象的所引用对象进行递归调用reallymarkobject是希望能快递结束本流程(pause->GCSpropagate) 以便处理完root_list
+** 对userData的mt和env则进行递归处理，因为除此之外，没有其它地方被引用了？
+*/
 static void reallymarkobject (global_State *g, GCObject *o) {
   lua_assert(iswhite(o) && !isdead(g, o));	/* 这个前提判断相当的重要 */
   white2gray(o);
@@ -75,8 +78,8 @@ static void reallymarkobject (global_State *g, GCObject *o) {
     }
     case LUA_TUSERDATA: {
       Table *mt = gco2u(o)->metatable;
-      gray2black(o);  /* udata are never gray */
-      if (mt) markobject(g, mt);
+      gray2black(o);  /* udata are never gray,没有其它地方被引用了？，这里将其置black,下同？ */
+      if (mt) markobject(g, mt);	
       markobject(g, gco2u(o)->env);
       return;
     }
@@ -154,7 +157,7 @@ size_t luaC_separateudata (lua_State *L, int all) {
   return deadmem;
 }
 
-
+/* 完整的遍历表 */
 static int traversetable (global_State *g, Table *h) {
   int i;
   int weakkey = 0;
@@ -162,11 +165,11 @@ static int traversetable (global_State *g, Table *h) {
   const TValue *mode;
   if (h->metatable)
     markobject(g, h->metatable);
-  mode = gfasttm(g, h->metatable, TM_MODE);
+  mode = gfasttm(g, h->metatable, TM_MODE);	/* 提取可能存在的mt的TM_MODE域 */
   if (mode && ttisstring(mode)) {  /* is there a weak mode? */
     weakkey = (strchr(svalue(mode), 'k') != NULL);
     weakvalue = (strchr(svalue(mode), 'v') != NULL);
-    if (weakkey || weakvalue) {  /* is really weak? */
+    if (weakkey || weakvalue) {  /* is really weak? 重新标记weak'bit位，并放入专用的weak链表中 */
       h->marked &= ~(KEYWEAK | VALUEWEAK);  /* clear bits */
       h->marked |= cast_byte((weakkey << KEYWEAKBIT) |
                              (weakvalue << VALUEWEAKBIT));
@@ -174,7 +177,7 @@ static int traversetable (global_State *g, Table *h) {
       g->weak = obj2gco(h);  /* ... so put in the appropriate list */
     }
   }
-  if (weakkey && weakvalue) return 1;
+  if (weakkey && weakvalue) return 1; /* 根据weak-key,weak-val的定义，不用再进一步扫描了，直接返回 */
   if (!weakvalue) {
     i = h->sizearray;
     while (i--)
@@ -184,10 +187,10 @@ static int traversetable (global_State *g, Table *h) {
   while (i--) {
     Node *n = gnode(h, i);
     lua_assert(ttype(gkey(n)) != LUA_TDEADKEY || ttisnil(gval(n)));
-    if (ttisnil(gval(n)))
+    if (ttisnil(gval(n)))	/* 显然，如果val为nil,则不用扫描对应的key了，因为key在这个表中已经"死亡了" */
       removeentry(n);  /* remove empty entries */
     else {
-      lua_assert(!ttisnil(gkey(n)));
+      lua_assert(!ttisnil(gkey(n)));	/* 这里再次要求不能出现nil-key--->noNil->val */
       if (!weakkey) markvalue(g, gkey(n));
       if (!weakvalue) markvalue(g, gval(n));
     }
@@ -282,7 +285,7 @@ static l_mem propagatemark (global_State *g) {
     case LUA_TTABLE: {
       Table *h = gco2h(o);
       g->gray = h->gclist;	/* 将其从gray链表中移除 */
-      if (traversetable(g, h))  /* table is weak? */
+      if (traversetable(g, h))  /* table is weak?,black不能引用white，根据弱表的定义，这里需要barrier_back或barrierf，这里选择了back */
         black2gray(o);  /* keep it gray */
       return sizeof(Table) + sizeof(TValue) * h->sizearray +
                              sizeof(Node) * sizenode(h);

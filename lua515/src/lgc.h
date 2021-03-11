@@ -56,8 +56,8 @@
 #define BLACKBIT	2
 
 #define FINALIZEDBIT	3
-#define KEYWEAKBIT	3
-#define VALUEWEAKBIT	4
+#define KEYWEAKBIT	3	/* 拥有弱key */
+#define VALUEWEAKBIT	4	/* 拥有弱val */
 #define FIXEDBIT	5	/* 保留数据，不能被GC,eg:语言关键字 */
 #define SFIXEDBIT	6	
 #define WHITEBITS	bit2mask(WHITE0BIT, WHITE1BIT)

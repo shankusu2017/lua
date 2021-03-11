@@ -18,6 +18,11 @@
 ** Hence even when the load factor reaches 100%, performance remains good.
 */
 
+/* 
+** 结合gc流程和table'insert的流程来看
+** tbl[k]=nil,若k仅被此表引用,则此k会被gc回收,for中进行tbl[k]=nil的操作，并不会修改影响表遍历的完整性 
+*/
+
 #include <math.h>
 #include <string.h>
 
@@ -143,7 +148,14 @@ static int findindex (lua_State *L, Table *t, StkId key) {
   else {
     Node *n = mainposition(t, key);
     do {  /* check whether `key' is somewhere in the chain */
-      /* key may be dead already, but it is ok to use it in `next' */
+      /* key may be dead already, but it is ok to use it in `next' 
+      **
+      ** for k,v pair(tbl) do
+      **      tbl[k] = nil
+      **      可能的gc导致出现DEADKEY
+      ** end
+      ** 下面的代码需要处理这种情况
+	  */
       if (luaO_rawequalObj(key2tval(n), key) ||
             (ttype(gkey(n)) == LUA_TDEADKEY && iscollectable(key) &&
              gcvalue(gkey(n)) == gcvalue(key))) {
@@ -493,7 +505,7 @@ const TValue *luaH_get (Table *t, const TValue *key) {
 
 TValue *luaH_set (lua_State *L, Table *t, const TValue *key) {
   const TValue *p = luaH_get(t, key);
-  t->flags = 0;
+  t->flags = 0;	/* 假设所有的tagmathod都有了 */
   if (p != luaO_nilobject)
     return cast(TValue *, p);
   else {
