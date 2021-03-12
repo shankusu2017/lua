@@ -131,12 +131,12 @@ static void marktmu (global_State *g) {
 size_t luaC_separateudata (lua_State *L, int all) {
   global_State *g = G(L);
   size_t deadmem = 0;
-  GCObject **p = &g->mainthread->next;
+  GCObject **p = &g->mainthread->next;	/* udata是挂在mainthread后面的，这里将其提取出来 */
   GCObject *curr;
   while ((curr = *p) != NULL) {
     if (!(iswhite(curr) || all) || isfinalized(gco2u(curr)))
       p = &curr->gch.next;  /* don't bother with them */
-    else if (fasttm(L, gco2u(curr)->metatable, TM_GC) == NULL) {
+    else if (fasttm(L, gco2u(curr)->metatable, TM_GC) == NULL) {	/* 没有mt或mt中没有TM_GC */
       markfinalized(gco2u(curr));  /* don't need finalization */
       p = &curr->gch.next;
     }
@@ -527,15 +527,15 @@ static void remarkupvals (global_State *g) {
 
 static void atomic (lua_State *L) {
   global_State *g = G(L);
-  size_t udsize;  /* total size of userdata to be finalized */
-  /* remark occasional upvalues of (maybe) dead threads */
+  size_t udsize;  /* total size of userdata to be finalized(最终确定) */
+  /* remark occasional（偶然，临时） upvalues of (maybe) dead threads */
   remarkupvals(g);
   /* traverse objects cautch by write barrier and by 'remarkupvals' */
   propagateall(g);
   /* remark weak tables */
   g->gray = g->weak;
   g->weak = NULL;
-  lua_assert(!iswhite(obj2gco(g->mainthread)));
+  lua_assert(!iswhite(obj2gco(g->mainthread)));		// g->mainthread不可能是白色，这里强制判断
   markobject(g, L);  /* mark running thread */
   markmt(g);  /* mark basic metatables (again) */
   propagateall(g);

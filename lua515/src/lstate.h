@@ -76,7 +76,7 @@ typedef struct global_State {
   GCObject **sweepgc;  /* position of sweep in `rootgc' */
   GCObject *gray;  /* list of gray objects */
   GCObject *grayagain;  /* list of objects to be traversed atomically */
-  GCObject *weak;  /* list of weak tables (to be cleared) */
+  GCObject *weak;  /* list of weak tables (to be cleared)，propagate阶段处理的weak-table被放入此链表(gc过程中weak-attribute还可能发生变化的)，等待最后atomic处理， */
   GCObject *tmudata;  /* last element of list of userdata to be GC */
   Mbuffer buff;  /* temporary buffer for string concatentation */
   lu_mem GCthreshold;

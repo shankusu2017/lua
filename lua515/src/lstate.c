@@ -93,7 +93,7 @@ static void preinit_state (lua_State *L, global_State *g) {
   resethookcount(L);
   L->openupval = NULL;
   L->size_ci = 0;
-  L->nCcalls = L->baseCcalls = 0;
+  L->nCcalls = L->baseCcalls = 0
   L->status = 0;
   L->base_ci = L->ci = NULL;
   L->savedpc = NULL;
@@ -167,7 +167,7 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   luaZ_initbuffer(L, &g->buff);
   g->panic = NULL;
   g->gcstate = GCSpause;
-  g->rootgc = obj2gco(L);
+  g->rootgc = obj2gco(L);	/* mainThread永远是链表的最后一个 */
   g->sweepstrgc = 0;
   g->sweepgc = &g->rootgc;
   g->gray = NULL;

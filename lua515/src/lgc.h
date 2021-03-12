@@ -14,11 +14,11 @@
 /*
 ** Possible states of the Garbage Collector
 */
-#define GCSpause	0	// 暂停状态，也是初始状态
+#define GCSpause	0		// 暂停状态，也是初始状态
 #define GCSpropagate	1	// 遍历阶段，扫描gray NOTE:gc开始后从pause->propagate整个"gc过程"是原子的
-#define GCSsweepstring	2
-#define GCSsweep	3
-#define GCSfinalize	4
+#define GCSsweepstring	2	// 回收空闲的string
+#define GCSsweep	3		// 回收其它类型的数据
+#define GCSfinalize	4		// 处理带有mt且mt有gc的所有userData的阶段？ */
 
 
 /*
@@ -55,10 +55,10 @@
 #define WHITE1BIT	1
 #define BLACKBIT	2
 
-#define FINALIZEDBIT	3
-#define KEYWEAKBIT	3	/* 拥有弱key */
-#define VALUEWEAKBIT	4	/* 拥有弱val */
-#define FIXEDBIT	5	/* 保留数据，不能被GC,eg:语言关键字 */
+#define FINALIZEDBIT	3		/* 对象拥有原表，原表有gc域? */
+#define KEYWEAKBIT	3			/* 拥有弱key */
+#define VALUEWEAKBIT	4		/* 拥有弱val */
+#define FIXEDBIT	5			/* 保留数据，不能被GC,eg:语言关键字 */
 #define SFIXEDBIT	6	
 #define WHITEBITS	bit2mask(WHITE0BIT, WHITE1BIT)
 

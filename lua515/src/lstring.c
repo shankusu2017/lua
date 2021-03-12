@@ -105,7 +105,7 @@ Udata *luaS_newudata (lua_State *L, size_t s, Table *e) {
   u->uv.env = e;
   /* chain it on udata list (after main thread) */
   u->uv.next = G(L)->mainthread->next;
-  G(L)->mainthread->next = obj2gco(u);
+  G(L)->mainthread->next = obj2gco(u);	/* 将udata挂在了mainthread的后面 */
   return u;
 }
 
