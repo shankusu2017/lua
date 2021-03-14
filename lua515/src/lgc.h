@@ -83,10 +83,10 @@
   if (G(L)->totalbytes >= G(L)->GCthreshold) \
 	luaC_step(L); }
 
-
+/* f: forward */ 
 #define luaC_barrier(L,p,v) { if (valiswhite(v) && isblack(obj2gco(p)))  \
 	luaC_barrierf(L,obj2gco(p),gcvalue(v)); }
-
+/* for table back */
 #define luaC_barriert(L,t,v) { if (valiswhite(v) && isblack(obj2gco(t)))  \
 	luaC_barrierback(L,t); }
 

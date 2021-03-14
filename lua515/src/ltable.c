@@ -154,6 +154,9 @@ static int findindex (lua_State *L, Table *t, StkId key) {
       **      tbl[k] = nil
       **      可能的gc导致出现DEADKEY
       ** end
+      **
+      ** LUA_TDEADKEY的key对应的mem可能被释放了，所以这里可能gcvalue(gkey(n) == gcvalue(key)) 这个判断不准确，要使其准确的前提是mem不释放，
+      ** 上面for循环中k保持了对其引用所以不会导致mem释放，其它环境下调用tbl.next(deadKey)因为不确定mem是否被释放所以结果是未定义的，我的妈妈咪耶，搞明白了吗
       ** 下面的代码需要处理这种情况
 	  */
       if (luaO_rawequalObj(key2tval(n), key) ||

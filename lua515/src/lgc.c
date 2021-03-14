@@ -146,7 +146,7 @@ size_t luaC_separateudata (lua_State *L, int all) {
       *p = curr->gch.next;
       /* link `curr' at the end of `tmudata' list */
       if (g->tmudata == NULL)  /* list is empty? */
-        g->tmudata = curr->gch.next = curr;  /* creates a circular list */
+        g->tmudata = curr->gch.next = curr;  /* creates a circular list，从root-gc中脱离出来独立到tmudata链表中 */
       else {
         curr->gch.next = g->tmudata->gch.next;
         g->tmudata->gch.next = curr;
@@ -335,7 +335,7 @@ static size_t propagateall (global_State *g) {
 ** a weak table. Non-collectable objects are never removed from weak
 ** tables. Strings behave as `values', so are never removed too. for
 ** other objects: if really collected, cannot keep them; for userdata
-** being finalized, keep them in keys, but not in values
+** being finalized, keep them in keys, but not in values (http://lua-users.org/lists/lua-l/2009-03/msg00438.html)
 */
 static int iscleared (const TValue *o, int iskey) {
   if (!iscollectable(o)) return 0;
@@ -366,7 +366,7 @@ static void cleartable (GCObject *l) {
     }
     i = sizenode(h);
     while (i--) {
-      Node *n = gnode(h, i);
+      Node *n = gnode(h, i); 
       if (!ttisnil(gval(n)) &&  /* non-empty entry? */
           (iscleared(key2tval(n), 1) || iscleared(gval(n), 0))) {
         setnilvalue(gval(n));  /* remove value ... */
