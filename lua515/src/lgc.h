@@ -55,11 +55,11 @@
 #define WHITE1BIT	1
 #define BLACKBIT	2
 
-#define FINALIZEDBIT	3		/* 对象拥有原表，原表有gc域? */
+#define FINALIZEDBIT	3		/* 需被回收(本轮或下一轮)*/
 #define KEYWEAKBIT	3			/* 拥有弱key */
 #define VALUEWEAKBIT	4		/* 拥有弱val */
 #define FIXEDBIT	5			/* 保留数据，不能被GC,eg:语言关键字 */
-#define SFIXEDBIT	6	
+#define SFIXEDBIT	6			/* 保留数据，only used for mainThread */
 #define WHITEBITS	bit2mask(WHITE0BIT, WHITE1BIT)
 
 

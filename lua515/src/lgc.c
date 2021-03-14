@@ -30,7 +30,7 @@
 
 
 #define maskmarks	cast_byte(~(bitmask(BLACKBIT)|WHITEBITS))
-
+/* 清空black.bit和white0.1.bit,重新打上current_white */
 #define makewhite(g,x)	\
    ((x)->gch.marked = cast_byte(((x)->gch.marked & maskmarks) | luaC_white(g)))
 
@@ -134,15 +134,15 @@ size_t luaC_separateudata (lua_State *L, int all) {
   GCObject **p = &g->mainthread->next;	/* udata是挂在mainthread后面的，这里将其提取出来 */
   GCObject *curr;
   while ((curr = *p) != NULL) {
-    if (!(iswhite(curr) || all) || isfinalized(gco2u(curr)))
+    if (!(iswhite(curr) || all) || isfinalized(gco2u(curr)))	// 本轮不需要回收，或者是上一轮需要回收且有tm_gc且运行了其方法，但本体留到本轮回收的udata */
       p = &curr->gch.next;  /* don't bother with them */
-    else if (fasttm(L, gco2u(curr)->metatable, TM_GC) == NULL) {	/* 没有mt或mt中没有TM_GC */
+    else if (fasttm(L, gco2u(curr)->metatable, TM_GC) == NULL) {	/* 本轮需要回收，但没有tm_gc：直接标记为需回收 */
       markfinalized(gco2u(curr));  /* don't need finalization */
       p = &curr->gch.next;
     }
     else {  /* must call its gc method */
       deadmem += sizeudata(gco2u(curr));
-      markfinalized(gco2u(curr));
+      markfinalized(gco2u(curr));	/* 需回收，本轮先运行tm_gc，本地的回收放到下一轮gc中被回收 */
       *p = curr->gch.next;
       /* link `curr' at the end of `tmudata' list */
       if (g->tmudata == NULL)  /* list is empty? */
@@ -455,7 +455,7 @@ static void GCTM (lua_State *L) {
     g->tmudata = NULL;
   else
     g->tmudata->gch.next = udata->uv.next;
-  udata->uv.next = g->mainthread->next;  /* return it to `root' list */
+  udata->uv.next = g->mainthread->next;  /* return it to `root' list，等待下一轮中回收其本体 */
   g->mainthread->next = o;
   makewhite(g, o);
   tm = fasttm(L, udata->uv.metatable, TM_GC);
