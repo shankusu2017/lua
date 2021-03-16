@@ -108,7 +108,7 @@ typedef struct lua_TValue {
 /* 检测类型的一致性 value.type和gc.tt要一致 */
 #define checkconsistency(obj) \
   lua_assert(!iscollectable(obj) || (ttype(obj) == (obj)->value.gc->gch.tt))
-
+/* 若为gc类型则检测类型一致性 value.type要和gc.tt一致，且obj可达 */
 #define checkliveness(g,obj) \
   lua_assert(!iscollectable(obj) || \
   ((ttype(obj) == (obj)->value.gc->gch.tt) && !isdead(g, (obj)->value.gc)))
@@ -183,7 +183,7 @@ typedef struct lua_TValue {
 /* to new object */
 #define setobj2n	setobj
 #define setsvalue2n	setsvalue
-
+/* 设置TValue的type */
 #define setttype(obj, tt) (ttype(obj) = (tt))
 
 
@@ -288,7 +288,7 @@ typedef struct UpVal {
 /*
 ** Closures
 ** env：环境变量的指针
-** isC: C闭包？
+** isC: 1：C函数， 0：Lua函数
 */
 
 #define ClosureHeader \

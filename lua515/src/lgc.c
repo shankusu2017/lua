@@ -48,7 +48,7 @@
 #define VALUEWEAK       bitmask(VALUEWEAKBIT)
 
 
-
+/* checkconsistency:若为gc类型，则两者type必须一致 */
 #define markvalue(g,o) { checkconsistency(o); \
   if (iscollectable(o) && iswhite(gcvalue(o))) reallymarkobject(g,gcvalue(o)); }
 
@@ -665,7 +665,7 @@ void luaC_barrierf (lua_State *L, GCObject *o, GCObject *v) {
   global_State *g = G(L);
   lua_assert(isblack(o) && iswhite(v) && !isdead(g, v) && !isdead(g, o));
   lua_assert(g->gcstate != GCSfinalize && g->gcstate != GCSpause);
-  lua_assert(ttype(&o->gch) != LUA_TTABLE);
+  lua_assert(ttype(&o->gch) != LUA_TTABLE);		// table 调用下面函数
   /* must keep invariant? */
   if (g->gcstate == GCSpropagate)
     reallymarkobject(g, v);  /* restore invariant */
