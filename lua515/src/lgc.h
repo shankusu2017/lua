@@ -66,13 +66,15 @@
 #define iswhite(x)      test2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)	/* 是任何一种白色吗 */
 #define isblack(x)      testbit((x)->gch.marked, BLACKBIT)	/* 是黑色吗 */
 #define isgray(x)	(!isblack(x) && !iswhite(x))	/* 不是黑，同时也不是任何一种白，则是gray */
-
+/* 保留 bit[7,2]位的数据，将bit[1,0]翻转 */
 #define otherwhite(g)	(g->currentwhite ^ WHITEBITS)	/* 返回另一种白的值 */
+/* 忽略bit[7,2] 若curWhite[1,1]->isdead[x,x]=false, curWhite[1,0]->isdead[x,1]=true,curWhite[0,1]->isdead[1,x]=true*/
 #define isdead(g,v)	((v)->gch.marked & otherwhite(g) & WHITEBITS)	/* 是dead(另一种白)吗 */
-
+/* 翻转bit[1,0],保留bit[7,2] */
 #define changewhite(x)	((x)->gch.marked ^= WHITEBITS)
+/* 标记bit[2]为1 */
 #define gray2black(x)	l_setbit((x)->gch.marked, BLACKBIT)	/* 看了isgray，应该理解这里 */
-
+/* gc且bit[1,0]任意一位为1即可 */
 #define valiswhite(x)	(iscollectable(x) && iswhite(gcvalue(x)))
 
 #define luaC_white(g)	cast(lu_byte, (g)->currentwhite & WHITEBITS)	/* 当前white的bits值 */

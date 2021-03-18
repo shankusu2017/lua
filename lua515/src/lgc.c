@@ -33,7 +33,7 @@
 /* 清空black.bit和white0.1.bit,重新打上current_white */
 #define makewhite(g,x)	\
    ((x)->gch.marked = cast_byte(((x)->gch.marked & maskmarks) | luaC_white(g)))
-
+/* 清空bit[1,0]白色位 */
 #define white2gray(x)	reset2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)
 #define black2gray(x)	resetbit((x)->gch.marked, BLACKBIT)
 
@@ -70,13 +70,14 @@ static void removeentry (Node *n) {
 ** 对userData的mt和env则进行递归处理，因为除此之外，没有其它地方被引用了？
 */
 static void reallymarkobject (global_State *g, GCObject *o) {
+  /* 是任何一种白色，且是当前白色 */
   lua_assert(iswhite(o) && !isdead(g, o));	/* 这个前提判断相当的重要 */
-  white2gray(o);
+  white2gray(o);	/* 清空bit[1,0]两个bit */
   switch (o->gch.tt) {
     case LUA_TSTRING: {
       return;
     }
-    case LUA_TUSERDATA: {
+    case LUA_TUSERDATA: {	/* 为了加快此阶段的mark，直接将udata标记为black,将其引用的数据调用本函数继续快速标记下即可 */
       Table *mt = gco2u(o)->metatable;
       gray2black(o);  /* udata are never gray,没有其它地方被引用了？，这里将其置black,下同？ */
       if (mt) markobject(g, mt);	
@@ -410,10 +411,11 @@ static void freeobj (lua_State *L, GCObject *o) {
 static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
   GCObject *curr;
   global_State *g = G(L);
-  int deadmask = otherwhite(g);
+  int deadmask = otherwhite(g);	/* 保留currentwhite的 bit[7,2]位的数据，将bit[1,0]翻转 */
   while ((curr = *p) != NULL && count-- > 0) {
     if (curr->gch.tt == LUA_TTHREAD)  /* sweep open upvalues of each thread */
       sweepwholelist(L, &gco2th(curr)->openupval);
+	/* gch.marked ^ WHITEBITS ->bit[7,2]不变，bit[1,0]翻转 */
     if ((curr->gch.marked ^ WHITEBITS) & deadmask) {  /* not dead? */
       lua_assert(!isdead(g, curr) || testbit(curr->gch.marked, FIXEDBIT));
       makewhite(g, curr);  /* make it white (for next cycle) */
@@ -637,7 +639,7 @@ void luaC_step (lua_State *L) {
 
 void luaC_fullgc (lua_State *L) {
   global_State *g = G(L);
-  if (g->gcstate <= GCSpropagate) {
+  if (g->gcstate <= GCSpropagate) {	/* 跳过mark阶段 */
     /* reset sweep marks to sweep all elements (returning them to white) */
     g->sweepstrgc = 0;
     g->sweepgc = &g->rootgc;
