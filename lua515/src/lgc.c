@@ -508,7 +508,7 @@ static void markroot (lua_State *L) {
   g->gray = NULL;
   g->grayagain = NULL;
   g->weak = NULL;
-  markobject(g, g->mainthread);	/* 将其链接到gray上(gc过程不被打断) */
+  markobject(g, g->mainthread);	/* 将其链接到gray上*/
   /* make global table be traversed before main stack */
   markvalue(g, gt(g->mainthread));
   markvalue(g, registry(L));
