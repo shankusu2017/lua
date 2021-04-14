@@ -26,7 +26,7 @@ const char *const luaT_typenames[] = {
   "proto", "upval"
 };
 
-
+/* 生成元方法名的字符串 */
 void luaT_init (lua_State *L) {
   static const char *const luaT_eventname[] = {  /* ORDER TM */
     "__index", "__newindex",

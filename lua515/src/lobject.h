@@ -201,7 +201,7 @@ typedef union TString {
   L_Umaxalign dummy;  /* ensures maximum alignment for strings */
   struct {
     CommonHeader;
-    lu_byte reserved;
+    lu_byte reserved;	/* 是否为保留字(eg:语言关键字) ？ */
     unsigned int hash;
     size_t len;
   } tsv;

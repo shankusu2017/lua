@@ -51,7 +51,7 @@
 
 
 typedef struct lua_State lua_State;
-// 拓展库函数要求的原型
+// 能被Lua虚拟机执行的C函数的原型
 typedef int (*lua_CFunction) (lua_State *L);
 
 

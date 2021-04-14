@@ -167,7 +167,7 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   luaZ_initbuffer(L, &g->buff);
   g->panic = NULL;
   g->gcstate = GCSpause;
-  g->rootgc = obj2gco(L);	/* mainThread永远是链表的最后一个 */
+  g->rootgc = obj2gco(L);	/* 这里rootgc->mainthread,后续讲gc时会再次提到 */
   g->sweepstrgc = 0;
   g->sweepgc = &g->rootgc;
   g->gray = NULL;
