@@ -30,7 +30,7 @@
 #define bitmask(b)	(1<<(b))							/* 获取某个左移N位的bit值 */
 #define bit2mask(b1,b2)	(bitmask(b1) | bitmask(b2))		/* 将1左移N位的bit值 | 将1左移M位的bit值 */
 #define l_setbit(x,b)	setbits(x, bitmask(b))			/* 将x的左移N位的bit设置为1 */
-#define resetbit(x,b)	resetbits(x, bitmask(b))	·	/* 将X的左移N位的bit设置位0 */
+#define resetbit(x,b)	resetbits(x, bitmask(b))		/* 将X的左移N位的bit设置位0 */
 #define testbit(x,b)	testbits(x, bitmask(b))			/* 测试X的左移N位是否为 1 */
 #define set2bits(x,b1,b2)	setbits(x, (bit2mask(b1, b2)))	/* 将X的左移N位，M位设置为 1 */
 #define reset2bits(x,b1,b2)	resetbits(x, (bit2mask(b1, b2)))	/* 清除X的左移N位，M位 */
