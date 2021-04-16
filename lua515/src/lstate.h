@@ -46,9 +46,9 @@ typedef struct stringtable {
 ** informations about a call
 */
 typedef struct CallInfo {
-  StkId base;  /* base for this function */
-  StkId func;  /* function index in the stack,本次函数调用frame中本函数的位置 */
-  StkId	top;  /* top for this function,无论Lua/C:本次调用可用栈的栈顶阈值，不可超过它,Lua字节码在编码时已计算出maxstacksize故而能保证，这里更多用于C调用(刚开始给出LUA_MINSTACK)的保护 */
+  StkId top;	/* top for this function,无论Lua/C:本次调用可用栈的栈顶阈值，不可超过它,Lua字节码在编码时已计算出maxstacksize故而能保证，这里更多用于C调用(刚开始给出LUA_MINSTACK)的保护 */
+  StkId base;  /* base for this function：本次函数调用中第一个可用的free-slot的位置？ */
+  StkId func;  /* function index in the stack,本次函数调用的fun在frame中的位置 */
   const Instruction *savedpc;	/* next code,本次调用被打断时存档,调用恢复时拿出来用？eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
   int nresults;  /* expected number of results from this function */
   int tailcalls;  /* number of tail calls lost under this entry */
@@ -100,7 +100,7 @@ typedef struct global_State {
 struct lua_State {
   CommonHeader;
   lu_byte status;
-  StkId top;  /* first free slot in the stack */
+  StkId top;  /* first free slot in the stack, 当前指向的addr是可用的！！！ */
   StkId base;  /* base of current function */
   global_State *l_G;
   CallInfo *ci;  /* call info for current function */

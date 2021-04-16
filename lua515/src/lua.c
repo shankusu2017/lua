@@ -61,7 +61,7 @@ static void l_message (const char *pname, const char *msg) {
   fflush(stderr);
 }
 
-
+/* 输出处理机状态异常(status),其它参数保存在idx:-1上 */
 static int report (lua_State *L, int status) {
   if (status && !lua_isnil(L, -1)) {
     const char *msg = lua_tostring(L, -1);

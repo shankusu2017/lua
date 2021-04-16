@@ -33,7 +33,7 @@
 /*
 ** pseudo-indices
 */
-// 注册表：供所有的C函数使用，函数自己要有机制避免key冲突
+// 注册表：供所有的C函数使用，住宿C语言自己要有机制避免key冲突
 #define LUA_REGISTRYINDEX	(-10000)
 // 正在运行的C/Lua函数的环境Closure.env域
 #define LUA_ENVIRONINDEX	(-10001)
@@ -234,7 +234,7 @@ LUA_API int (lua_gc) (lua_State *L, int what, int data);
 
 
 /*
-** miscellaneous functions
+** miscellaneous(各式各样的) functions
 */
 
 LUA_API int   (lua_error) (lua_State *L);

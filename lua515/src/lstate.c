@@ -52,9 +52,9 @@ static void stack_init (lua_State *L1, lua_State *L) {
   L1->stack_last = L1->stack+(L1->stacksize - EXTRA_STACK)-1;
   /* initialize first ci */
   L1->ci->func = L1->top;
-  setnilvalue(L1->top++);  /* `function' entry for this `ci' */
+  setnilvalue(L1->top++);  /* 当前“没有”调用函数,所以这里为nil `function' entry for this `ci' */
   L1->base = L1->ci->base = L1->top;
-  L1->ci->top = L1->top + LUA_MINSTACK;
+  L1->ci->top = L1->top + LUA_MINSTACK;	/* 给调用栈预留出 LUA_MINSTACK 个slot空间 */
 }
 
 

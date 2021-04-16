@@ -43,31 +43,31 @@ const char lua_ident[] =
 #define api_checknelems(L, n)	api_check(L, (n) <= (L->top - L->base))
 
 #define api_checkvalidindex(L, i)	api_check(L, (i) != luaO_nilobject)
-
+/* 先检查top指针时候还能增长，若能则++,否则报错 */
 #define api_incr_top(L)   {api_check(L, L->top < L->ci->top); L->top++;}
 
 
-
+/* RETURNS: luaO_nilobject idx无意义 */
 static TValue *index2adr (lua_State *L, int idx) {
   if (idx > 0) {
     TValue *o = L->base + (idx - 1);
-    api_check(L, idx <= L->ci->top - L->base);
-    if (o >= L->top) return cast(TValue *, luaO_nilobject);
+    api_check(L, idx <= L->ci->top - L->base);	/* 核查idx是否在当前ci的安全范围内? */
+    if (o >= L->top) return cast(TValue *, luaO_nilobject);	/* 无意义的值 */
     else return o;
   }
   else if (idx > LUA_REGISTRYINDEX) {
-    api_check(L, idx != 0 && -idx <= L->top - L->base);
+    api_check(L, idx != 0 && -idx <= L->top - L->base);	/* idx=0是个非法值!!, 必须是个有意义的值 */
     return L->top + idx;
   }
   else switch (idx) {  /* pseudo-indices */
     case LUA_REGISTRYINDEX: return registry(L);
     case LUA_ENVIRONINDEX: {
       Closure *func = curr_func(L);
-      sethvalue(L, &L->env, func->c.env);
+      sethvalue(L, &L->env, func->c.env);	/* 这里就有意思了 */
       return &L->env;
     }
     case LUA_GLOBALSINDEX: return gt(L);
-    default: {
+    default: {	/* 尝试提取ci->fun的upvalues */
       Closure *func = curr_func(L);
       idx = LUA_GLOBALSINDEX - idx;
       return (idx <= func->c.nupvalues)
@@ -79,11 +79,11 @@ static TValue *index2adr (lua_State *L, int idx) {
 
 
 static Table *getcurrenv (lua_State *L) {
-  if (L->ci == L->base_ci)  /* no enclosing function? */
+  if (L->ci == L->base_ci)  /* no enclosing function?，哈哈：栈的初始状态了， */
     return hvalue(gt(L));  /* use global table as environment */
-  else {
+  else {	/* 返回当前调用函数的env值 */
     Closure *func = curr_func(L);
-    return func->c.env;
+    return func->c.env;	
   }
 }
 
@@ -102,7 +102,7 @@ LUA_API int lua_checkstack (lua_State *L, int size) {
   else if (size > 0) {
     luaD_checkstack(L, size);
     if (L->ci->top < L->top + size)	// 更新ci信息
-      L->ci->top = L->top + size;
+      L->ci->top = L->top + size;	// size过大，L->top+size可能越过了ci-top,上面调整了内存，有了上面的内存调整保证，这里也调整下ci->top */
   }
   lua_unlock(L);
   return res;
@@ -113,12 +113,12 @@ LUA_API void lua_xmove (lua_State *from, lua_State *to, int n) {
   int i;
   if (from == to) return;
   lua_lock(to);
-  api_checknelems(from, n);
-  api_check(from, G(from) == G(to));
-  api_check(from, to->ci->top - to->top >= n);
+  api_checknelems(from, n);	// 是否有这么多元素
+  api_check(from, G(from) == G(to));	// 不是同一个vm下，则报错
+  api_check(from, to->ci->top - to->top >= n);	// 目的地是否有足够的空闲slot
   from->top -= n;
   for (i = 0; i < n; i++) {
-    setobj2s(to, to->top++, from->top + i);
+    setobj2s(to, to->top++, from->top + i);	// 拷贝
   }
   lua_unlock(to);
 }
@@ -128,7 +128,7 @@ LUA_API void lua_setlevel (lua_State *from, lua_State *to) {
   to->nCcalls = from->nCcalls;
 }
 
-
+// 设置panic，返回old
 LUA_API lua_CFunction lua_atpanic (lua_State *L, lua_CFunction panicf) {
   lua_CFunction old;
   lua_lock(L);
@@ -138,7 +138,7 @@ LUA_API lua_CFunction lua_atpanic (lua_State *L, lua_CFunction panicf) {
   return old;
 }
 
-
+// 构建一个新的thread，注意不是state
 LUA_API lua_State *lua_newthread (lua_State *L) {
   lua_State *L1;
   lua_lock(L);
@@ -178,7 +178,7 @@ LUA_API void lua_settop (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-
+/* 删除idx指定的栈的slot，slot上面的slot整理往下移一格 */
 LUA_API void lua_remove (lua_State *L, int idx) {
   StkId p;
   lua_lock(L);
@@ -189,7 +189,7 @@ LUA_API void lua_remove (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-
+/* 将栈顶元素top抽出来，插入到idx指定的slot，并将idx及其上面的元素整理上移一格 */
 LUA_API void lua_insert (lua_State *L, int idx) {
   StkId p;
   StkId q;
@@ -201,7 +201,7 @@ LUA_API void lua_insert (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-
+/* 用栈顶元素替换idx指定的值，再删除栈顶元素 */
 LUA_API void lua_replace (lua_State *L, int idx) {
   StkId o;
   lua_lock(L);
@@ -226,7 +226,7 @@ LUA_API void lua_replace (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-
+/* 将idx指定的slot拷贝一份到栈顶 */
 LUA_API void lua_pushvalue (lua_State *L, int idx) {
   lua_lock(L);
   setobj2s(L, L->top, index2adr(L, idx));
@@ -484,7 +484,7 @@ LUA_API const char *lua_pushfstring (lua_State *L, const char *fmt, ...) {
   return ret;
 }
 
-
+/* 压入一个cFun,再用先前压入的n个值作为upvalues和这个cFun组成一个closure */
 LUA_API void lua_pushcclosure (lua_State *L, lua_CFunction fn, int n) {
   Closure *cl;
   lua_lock(L);
@@ -532,7 +532,7 @@ LUA_API int lua_pushthread (lua_State *L) {
 ** get functions (Lua -> stack)
 */
 
-
+/* 获取由idx指定的table中的key=L->top的值，将其放到L->top上 */
 LUA_API void lua_gettable (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
