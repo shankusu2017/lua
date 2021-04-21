@@ -38,7 +38,7 @@ const char lua_ident[] =
 
 
 /* 当前栈内否存在N个元素 
-** 用途：核查是否的传入声明的元素个数(eg:声明传入函数指针和N个参数，准备调用函数，这里一看既然没有那么多参数！！)
+** 用途：核查函数调用中实际传入的参数个数是否不小于声明的n个(eg:声明传入函数指针和N个参数，准备调用函数，结果一查既然没有那么多参数！！)
  */
 #define api_checknelems(L, n)	api_check(L, (n) <= (L->top - L->base))
 
@@ -157,7 +157,7 @@ LUA_API lua_State *lua_newthread (lua_State *L) {
 ** basic stack manipulation
 */
 
-
+/* 本次函数调用中，压入栈的参数数量(func除外) */
 LUA_API int lua_gettop (lua_State *L) {
   return cast_int(L->top - L->base);
 }
@@ -509,7 +509,7 @@ LUA_API void lua_pushboolean (lua_State *L, int b) {
   lua_unlock(L);
 }
 
-
+/* 这里看到lightuserdata需要C宿主自己管理生命周期 */
 LUA_API void lua_pushlightuserdata (lua_State *L, void *p) {
   lua_lock(L);
   setpvalue(L->top, p);
@@ -542,7 +542,7 @@ LUA_API void lua_gettable (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-
+/* 返回idx指定的table,k对应的key的值，放到stack->top上 */
 LUA_API void lua_getfield (lua_State *L, int idx, const char *k) {
   StkId t;
   TValue key;
@@ -555,7 +555,7 @@ LUA_API void lua_getfield (lua_State *L, int idx, const char *k) {
   lua_unlock(L);
 }
 
-
+/* top-1 = idx[top-1] */
 LUA_API void lua_rawget (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -565,7 +565,7 @@ LUA_API void lua_rawget (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-
+/* top = idx[n] */
 LUA_API void lua_rawgeti (lua_State *L, int idx, int n) {
   StkId o;
   lua_lock(L);
@@ -614,7 +614,7 @@ LUA_API int lua_getmetatable (lua_State *L, int objindex) {
   return res;
 }
 
-
+/* 按照idx指向的slot的不同的类型，提取对应的env */
 LUA_API void lua_getfenv (lua_State *L, int idx) {
   StkId o;
   lua_lock(L);
@@ -643,7 +643,7 @@ LUA_API void lua_getfenv (lua_State *L, int idx) {
 ** set functions (stack -> Lua)
 */
 
-
+/* 给指定的table设置key=val       idx[top-2] = top-1 */
 LUA_API void lua_settable (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -655,7 +655,7 @@ LUA_API void lua_settable (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-
+/* idx[k] = top-1 */
 LUA_API void lua_setfield (lua_State *L, int idx, const char *k) {
   StkId t;
   TValue key;
@@ -669,7 +669,7 @@ LUA_API void lua_setfield (lua_State *L, int idx, const char *k) {
   lua_unlock(L);
 }
 
-
+/* idx[top-2] = top-1 */
 LUA_API void lua_rawset (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -677,12 +677,12 @@ LUA_API void lua_rawset (lua_State *L, int idx) {
   t = index2adr(L, idx);
   api_check(L, ttistable(t));
   setobj2t(L, luaH_set(L, hvalue(t), L->top-2), L->top-1);
-  luaC_barriert(L, hvalue(t), L->top-1);
+  luaC_barriert(L, hvalue(t), L->top-1);	/* 这里为什么不多加一句 luaC_barriert(L, hvalue(t), L->top-2); luaH_set函数已经处理了，所以这里无需再次处理 */
   L->top -= 2;
   lua_unlock(L);
 }
 
-
+/* idx[n] = top-1 */
 LUA_API void lua_rawseti (lua_State *L, int idx, int n) {
   StkId o;
   lua_lock(L);
@@ -690,12 +690,12 @@ LUA_API void lua_rawseti (lua_State *L, int idx, int n) {
   o = index2adr(L, idx);
   api_check(L, ttistable(o));
   setobj2t(L, luaH_setnum(L, hvalue(o), n), L->top-1);
-  luaC_barriert(L, hvalue(o), L->top-1);
+  luaC_barriert(L, hvalue(o), L->top-1);	/* barrier 有印象就好 */
   L->top--;
   lua_unlock(L);
 }
 
-
+/* obj.mt = top-1 */
 LUA_API int lua_setmetatable (lua_State *L, int objindex) {
   TValue *obj;
   Table *mt;
@@ -732,7 +732,7 @@ LUA_API int lua_setmetatable (lua_State *L, int objindex) {
   return 1;
 }
 
-
+/* idx.env = top-1 */
 LUA_API int lua_setfenv (lua_State *L, int idx) {
   StkId o;
   int res = 1;
@@ -770,7 +770,7 @@ LUA_API int lua_setfenv (lua_State *L, int idx) {
 #define adjustresults(L,nres) \
     { if (nres == LUA_MULTRET && L->top >= L->ci->top) L->ci->top = L->top; }
 
-
+/* na=nargs(传入的参数), nr=nresults(期待的返回参数个数) */
 #define checkresults(L,na,nr) \
      api_check(L, (nr) == LUA_MULTRET || (L->ci->top - L->top >= (nr) - (na)))
 	
@@ -778,7 +778,7 @@ LUA_API int lua_setfenv (lua_State *L, int idx) {
 LUA_API void lua_call (lua_State *L, int nargs, int nresults) {
   StkId func;
   lua_lock(L);
-  api_checknelems(L, nargs+1);
+  api_checknelems(L, nargs+1);	/* 加1是要算入cfun */
   checkresults(L, nargs, nresults);
   func = L->top - (nargs+1);
   luaD_call(L, func, nresults);

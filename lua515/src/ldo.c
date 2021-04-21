@@ -90,7 +90,7 @@ static void resetstack (lua_State *L, int status) {
   L->errorJmp = NULL;
 }
 
-
+/* 尝试调用异常处理函数 */
 void luaD_throw (lua_State *L, int errcode) {
   if (L->errorJmp) {
     L->errorJmp->status = errcode;
@@ -370,7 +370,7 @@ int luaD_poscall (lua_State *L, StkId firstResult) {
 ** function position.
 */ 
 void luaD_call (lua_State *L, StkId func, int nResults) {
-  if (++L->nCcalls >= LUAI_MAXCCALLS) {
+  if (++L->nCcalls >= LUAI_MAXCCALLS) {	/* 调用层次太深，进入抛出异常 */
     if (L->nCcalls == LUAI_MAXCCALLS)
       luaG_runerror(L, "C stack overflow");
     else if (L->nCcalls >= (LUAI_MAXCCALLS + (LUAI_MAXCCALLS>>3)))

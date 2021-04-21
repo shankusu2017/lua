@@ -38,7 +38,7 @@ typedef struct LG {
 } LG;
   
 
-
+/* 重点函数 */
 static void stack_init (lua_State *L1, lua_State *L) {
   /* initialize CallInfo array */
   L1->base_ci = luaM_newvector(L, BASIC_CI_SIZE, CallInfo);
@@ -50,9 +50,11 @@ static void stack_init (lua_State *L1, lua_State *L) {
   L1->stacksize = BASIC_STACK_SIZE + EXTRA_STACK;
   L1->top = L1->stack;
   L1->stack_last = L1->stack+(L1->stacksize - EXTRA_STACK)-1;
+  
   /* initialize first ci */
   L1->ci->func = L1->top;
   setnilvalue(L1->top++);  /* 当前“没有”调用函数,所以这里为nil `function' entry for this `ci' */
+  
   L1->base = L1->ci->base = L1->top;
   L1->ci->top = L1->top + LUA_MINSTACK;	/* 给调用栈预留出 LUA_MINSTACK 个slot空间 */
 }

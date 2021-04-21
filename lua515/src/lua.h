@@ -5,6 +5,7 @@
 ** See Copyright Notice at the end of this file
 */
 
+/* lua对外接口头文件，实现在lapi.c中 */
 
 #ifndef lua_h
 #define lua_h

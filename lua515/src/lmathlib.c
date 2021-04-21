@@ -2,6 +2,7 @@
 ** $Id: lmathlib.c,v 1.67.1.1 2007/12/27 13:02:25 roberto Exp $
 ** Standard mathematical library
 ** See Copyright Notice in lua.h
+** 核对参数，调用C库对应函数完成运算后返回结果
 */
 
 
@@ -12,7 +13,7 @@
 #define LUA_LIB
 
 #include "lua.h"
-
+/* 可以看出xxxlib的库对于lua虚拟机来说也是外围组件 */
 #include "lauxlib.h"
 #include "lualib.h"
 
@@ -22,7 +23,7 @@
 #define RADIANS_PER_DEGREE (PI/180.0)
 
 
-
+/* 核对输入参数，调用相关的math库函数处理 */
 static int math_abs (lua_State *L) {
   lua_pushnumber(L, fabs(luaL_checknumber(L, 1)));
   return 1;
@@ -180,11 +181,13 @@ static int math_max (lua_State *L) {
 
 static int math_random (lua_State *L) {
   /* the `%' avoids the (rare) case of r==1, and is needed also because on
-     some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
-  lua_Number r = (lua_Number)(rand()%RAND_MAX) / (lua_Number)RAND_MAX;
+   * some systems (SunOS!) `rand()' may return a value larger than RAND_MAX 
+   * 标准C库rand()->[0, RAND_MAX]
+   */
+  lua_Number r = (lua_Number)(rand()%RAND_MAX) / (lua_Number)RAND_MAX;	// r—>[0, 1.0)
   switch (lua_gettop(L)) {  /* check number of arguments */
     case 0: {  /* no arguments */
-      lua_pushnumber(L, r);  /* Number between 0 and 1 */
+      lua_pushnumber(L, r);  /* Number between 0 and 1  [0,1) */
       break;
     }
     case 1: {  /* only upper limit */

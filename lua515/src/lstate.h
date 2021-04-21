@@ -44,10 +44,11 @@ typedef struct stringtable {
 
 /*
 ** informations about a call
+** 对照lstate.c的stack_init函数看
 */
 typedef struct CallInfo {
   StkId top;	/* top for this function,无论Lua/C:本次调用可用栈的栈顶阈值，不可超过它,Lua字节码在编码时已计算出maxstacksize故而能保证，这里更多用于C调用(刚开始给出LUA_MINSTACK)的保护 */
-  StkId base;  /* base for this function：本次函数调用中第一个可用的free-slot的位置？ */
+  StkId base;  /* base for this function：本次函数调用中,存放第一个参数的slot,top-base=已压入的调用参数个数 */
   StkId func;  /* function index in the stack,本次函数调用的fun在frame中的位置 */
   const Instruction *savedpc;	/* next code,本次调用被打断时存档,调用恢复时拿出来用？eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
   int nresults;  /* expected number of results from this function */
