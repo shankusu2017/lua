@@ -325,7 +325,7 @@ typedef union Closure {
 
 typedef union TKey {
   struct {
-    TValuefields;
+    TValuefields;	/* 这里不能简单的用TValue替代，因为TValue已经是最顶层的Value表现形式了。不能再和XXX混合形成更高层次的Value */
     struct Node *next;  /* for chaining */
   } nk;
   TValue tvk;
