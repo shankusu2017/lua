@@ -226,7 +226,7 @@ LUA_API void lua_replace (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-/* 将idx指定的slot拷贝一份到栈顶 */
+/* top-1 = idx, top++ 将idx指定的slot拷贝一份到栈顶 */
 LUA_API void lua_pushvalue (lua_State *L, int idx) {
   lua_lock(L);
   setobj2s(L, L->top, index2adr(L, idx));
@@ -484,7 +484,7 @@ LUA_API const char *lua_pushfstring (lua_State *L, const char *fmt, ...) {
   return ret;
 }
 
-/* 压入一个cFun,再用先前压入的n个值作为upvalues和这个cFun组成一个closure */
+/* 用先前压入的n个值作为upvalues和这个cFun组成一个closure，再删除upvalues,再将closure放到栈顶 */
 LUA_API void lua_pushcclosure (lua_State *L, lua_CFunction fn, int n) {
   Closure *cl;
   lua_lock(L);
@@ -542,7 +542,7 @@ LUA_API void lua_gettable (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-/* 返回idx指定的table,k对应的key的值，放到stack->top上 */
+/* top=idx[k], top++*/
 LUA_API void lua_getfield (lua_State *L, int idx, const char *k) {
   StkId t;
   TValue key;
@@ -555,7 +555,7 @@ LUA_API void lua_getfield (lua_State *L, int idx, const char *k) {
   lua_unlock(L);
 }
 
-/* top-1 = idx[top-1] */
+/* top-1 = idx[top-1], 原先在栈顶的key(top-1)被结果替代 */
 LUA_API void lua_rawget (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -655,7 +655,7 @@ LUA_API void lua_settable (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-/* idx[k] = top-1 */
+/* idx[k] = top-1, top-- */
 LUA_API void lua_setfield (lua_State *L, int idx, const char *k) {
   StkId t;
   TValue key;
@@ -695,7 +695,7 @@ LUA_API void lua_rawseti (lua_State *L, int idx, int n) {
   lua_unlock(L);
 }
 
-/* obj.mt = top-1 */
+/* obj.mt = top-1, top-- */
 LUA_API int lua_setmetatable (lua_State *L, int objindex) {
   TValue *obj;
   Table *mt;

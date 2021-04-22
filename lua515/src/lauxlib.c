@@ -241,22 +241,34 @@ static int libsize (const luaL_Reg *l) {
 
 LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
                               const luaL_Reg *l, int nup) {
-  if (libname) {
+  /* step1: reg[_LOADED] = reg[_LOADED] or {}
+   * step2: G[libname] = G[libname] or {}
+   * step3: reg[_LOADED][libname] = G[libname]
+   * step4: 栈仅多了一个G[libname]
+   * step5: G[libname].name = func
+   * step6: 栈上仅多出了一个G[libname]
+   */                            
+  if (libname) {	
     int size = libsize(l);
     /* check whether lib already exists */
-    luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 1);
+  	// step1
+    luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 1);	/* 查找reg[_LOADED]的表，没有则构建 */
     lua_getfield(L, -1, libname);  /* get _LOADED[libname] */
     if (!lua_istable(L, -1)) {  /* not found? */
       lua_pop(L, 1);  /* remove previous result */
       /* try global variable (and create one if it does not exist) */
+	  // step2
       if (luaL_findtable(L, LUA_GLOBALSINDEX, libname, size) != NULL)
         luaL_error(L, "name conflict for module " LUA_QS, libname);
+	  // step3
       lua_pushvalue(L, -1);
       lua_setfield(L, -3, libname);  /* _LOADED[libname] = new table */
     }
-    lua_remove(L, -2);  /* remove _LOADED table */
+	// step4
+    lua_remove(L, -2);  /*  remove _LOADED table */
     lua_insert(L, -(nup+1));  /* move library table to below upvalues */
   }
+  // step5
   for (; l->name; l++) {
     int i;
     for (i=0; i<nup; i++)  /* copy upvalues to the top */
@@ -264,6 +276,7 @@ LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
     lua_pushcclosure(L, l->func, nup);
     lua_setfield(L, -(nup+2), l->name);
   }
+  // step6
   lua_pop(L, nup);  /* remove upvalues */
 }
 
@@ -353,30 +366,34 @@ LUALIB_API const char *luaL_gsub (lua_State *L, const char *s, const char *p,
   return lua_tostring(L, -1);
 }
 
-
+/* top-1 = idx[fname]，
+ * fname:_LOADED这种无需迭代，con2:xxx.yy.zzz 按照xx->yy->zz的顺序依次查找和构建(类似linux下mkdir -p命令)
+ * 中途查找结果为空则构建指定格式的新表，结果为表则返回， 其它类型则返回错误 
+*/
 LUALIB_API const char *luaL_findtable (lua_State *L, int idx,
                                        const char *fname, int szhint) {
   const char *e;
-  lua_pushvalue(L, idx);
+  lua_pushvalue(L, idx);	// 压入被检索的原始表tlb1
   do {
     e = strchr(fname, '.');
-    if (e == NULL) e = fname + strlen(fname);
-    lua_pushlstring(L, fname, e - fname);
-    lua_rawget(L, -2);
+	// 不能用.分割出下一个字符了,con1:fname=_LOADED这种本来就无法风格的，con2:xxx.yy 最后的yy
+    if (e == NULL) e = fname + strlen(fname);	
+    lua_pushlstring(L, fname, e - fname);	// 压入key1
+    lua_rawget(L, -2);						// top-1 = tbl1[key],key被删除
     if (lua_isnil(L, -1)) {  /* no such field? */
       lua_pop(L, 1);  /* remove this nil */
-      lua_createtable(L, 0, (*e == '.' ? 1 : szhint)); /* new table for field */
+      lua_createtable(L, 0, (*e == '.' ? 1 : szhint)); /* new table2 for field */
       lua_pushlstring(L, fname, e - fname);
       lua_pushvalue(L, -2);
-      lua_settable(L, -4);  /* set new table into field */
+      lua_settable(L, -4);  /* set new table into field，相当于构建一个新表tbl2当作tbl1[key]的结果放到top=2上 */
     }
-    else if (!lua_istable(L, -1)) {  /* field has a non-table value? */
+    else if (!lua_istable(L, -1)) {  /* field has a non-table value?,类型非法，直接返回 */
       lua_pop(L, 2);  /* remove table and value */
       return fname;  /* return problematic part of the name */
     }
-    lua_remove(L, -2);  /* remove previous table */
+    lua_remove(L, -2);  /* remove previous table，删除前一个tbl1,现在stack只剩下作为检索结果的tbl2 */
     fname = e + 1;
-  } while (*e == '.');
+  } while (*e == '.');	/* 还有下一个域，则继续执行 */
   return NULL;
 }
 

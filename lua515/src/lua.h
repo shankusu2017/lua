@@ -254,7 +254,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 ** some useful macros
 ** ===============================================================
 */
-
+/* 从栈顶移除n个元素 */
 #define lua_pop(L,n)		lua_settop(L, -(n)-1)
 
 #define lua_newtable(L)		lua_createtable(L, 0, 0)
@@ -276,8 +276,9 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
 #define lua_pushliteral(L, s)	\
 	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
-
+/* gbl[s] = top-1, top-- */
 #define lua_setglobal(L,s)	lua_setfield(L, LUA_GLOBALSINDEX, (s))
+/* top = gbl[s], top++ */
 #define lua_getglobal(L,s)	lua_getfield(L, LUA_GLOBALSINDEX, (s))
 
 #define lua_tostring(L,i)	lua_tolstring(L, (i), NULL)

@@ -629,18 +629,21 @@ static void base_open (lua_State *L) {
   lua_setglobal(L, "_G");
   
   /* open lib into global table */
-  luaL_register(L, "_G", base_funcs);
+  luaL_register(L, "_G", base_funcs);	/* 将base_funcs中的key.val 进行如下赋值G[_G]key=val,栈顶多出一个G[_G]的表 */
+  /* 栈顶多出一个G_G的表 */
+  
   lua_pushliteral(L, LUA_VERSION);
   lua_setglobal(L, "_VERSION");  /* set global _VERSION */
+  
   /* `ipairs' and `pairs' need auxiliary functions as upvalues */
-  auxopen(L, "ipairs", luaB_ipairs, ipairsaux);
+  auxopen(L, "ipairs", luaB_ipairs, ipairsaux);	/* G[ipairs] = CLoure(luaB_ipairs).upvalues(ipairsaux), G_G还留在了栈顶 */
   auxopen(L, "pairs", luaB_pairs, luaB_next);
   /* `newproxy' needs a weaktable as upvalue */
   lua_createtable(L, 0, 1);  /* new table `w' */
   lua_pushvalue(L, -1);  /* `w' will be its own metatable */
   lua_setmetatable(L, -2);
   lua_pushliteral(L, "kv");
-  lua_setfield(L, -2, "__mode");  /* metatable(w).__mode = "kv" */
+  lua_setfield(L, -2, "__mode");  /* metatable(w).__mode = "kv",弱表 */
   lua_pushcclosure(L, luaB_newproxy, 1);
   lua_setglobal(L, "newproxy");  /* set global `newproxy' */
 }
@@ -649,6 +652,7 @@ static void base_open (lua_State *L) {
 LUALIB_API int luaopen_base (lua_State *L) {
   base_open(L);
   luaL_register(L, LUA_COLIBNAME, co_funcs);
+  // 上面两个函数调用结束后，栈上多出 G[_G].idx==-2, G[coroutinue].idx==-1两张表,所以这里返回2
   return 2;
 }
 
