@@ -18,13 +18,13 @@
 #include "lualib.h"
 
 
-
+/* 提取注册表 */
 static int db_getregistry (lua_State *L) {
   lua_pushvalue(L, LUA_REGISTRYINDEX);
   return 1;
 }
 
-
+/* 提取top-1的values的元表，没有则返回NIL */
 static int db_getmetatable (lua_State *L) {
   luaL_checkany(L, 1);
   if (!lua_getmetatable(L, 1)) {
@@ -33,7 +33,7 @@ static int db_getmetatable (lua_State *L) {
   return 1;
 }
 
-
+/* top[-2].mt = top[-1],  top++ , top[-1]=ret*/
 static int db_setmetatable (lua_State *L) {
   int t = lua_type(L, 2);
   luaL_argcheck(L, t == LUA_TNIL || t == LUA_TTABLE, 2,
@@ -43,14 +43,14 @@ static int db_setmetatable (lua_State *L) {
   return 1;
 }
 
-
+/* top-1 = idx[1].env, top++ */
 static int db_getfenv (lua_State *L) {
   luaL_checkany(L, 1);
   lua_getfenv(L, 1);
   return 1;
 }
 
-
+/* idx[1].env = idx[2], top-- */
 static int db_setfenv (lua_State *L) {
   luaL_checktype(L, 2, LUA_TTABLE);
   lua_settop(L, 2);
@@ -60,19 +60,19 @@ static int db_setfenv (lua_State *L) {
   return 1;
 }
 
-
-static void settabss (lua_State *L, const char *i, const char *v) {
+/* ss: string.key string.val */
+static void settabss (lua_State *L, const char *k, const char *v) {
   lua_pushstring(L, v);
-  lua_setfield(L, -2, i);
+  lua_setfield(L, -2, k);
 }
 
-
-static void settabsi (lua_State *L, const char *i, int v) {
+/* si: string.key int.val */
+static void settabsi (lua_State *L, const char *k, int v) {
   lua_pushinteger(L, v);
-  lua_setfield(L, -2, i);
+  lua_setfield(L, -2, k);
 }
 
-
+/* 若idx[1]为thread则返回idx[1],arg=1,反之返回传入的L,arg=0 */
 static lua_State *getthread (lua_State *L, int *arg) {
   if (lua_isthread(L, 1)) {
     *arg = 1;
@@ -95,13 +95,13 @@ static void treatstackoption (lua_State *L, lua_State *L1, const char *fname) {
   lua_setfield(L, -2, fname);
 }
 
-
+/* debug.getinfo ([thread,] function [, what]) */
 static int db_getinfo (lua_State *L) {
   lua_Debug ar;
   int arg;
-  lua_State *L1 = getthread(L, &arg);
+  lua_State *L1 = getthread(L, &arg);	/* 尝试确定第一个参数是否有传入 */
   const char *options = luaL_optstring(L, arg+2, "flnSu");
-  if (lua_isnumber(L, arg+1)) {
+  if (lua_isnumber(L, arg+1)) {	/* level代表了function */
     if (!lua_getstack(L1, (int)lua_tointeger(L, arg+1), &ar)) {
       lua_pushnil(L);  /* level out of range */
       return 1;
@@ -117,7 +117,7 @@ static int db_getinfo (lua_State *L) {
     return luaL_argerror(L, arg+1, "function or level expected");
   if (!lua_getinfo(L1, options, &ar))
     return luaL_argerror(L, arg+2, "invalid option");
-  lua_createtable(L, 0, 2);
+  lua_createtable(L, 0, 2);	/* 创建存放感兴趣的域的表 */
   if (strchr(options, 'S')) {
     settabss(L, "source", ar.source);
     settabss(L, "short_src", ar.short_src);

@@ -234,10 +234,10 @@ typedef struct Proto {
   TValue *k;  /* constants used by the function */
   Instruction *code;
   struct Proto **p;  /* functions defined inside the function */
-  int *lineinfo;  /* map from opcodes to source lines */
+  int *lineinfo;  /* map from opcodes to source lines,   lineinfo[code.idx]->code.fileLine */
   struct LocVar *locvars;  /* information about local variables */
   TString **upvalues;  /* upvalue names */
-  TString  *source;
+  TString  *source;	/* 所在源文件的带路径的文件名 */
   int sizeupvalues;
   int sizek;  /* size of `k' */
   int sizecode;

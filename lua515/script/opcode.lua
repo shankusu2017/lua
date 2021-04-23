@@ -2,7 +2,11 @@ local t1 = {}
 local t2 = {}
 setmetatable(t1, t2)
 print("type(t1.getmetatable())", type(getmetatable(t1)))
--- local a = tonumber("3")
+
+function ff(x, y)
+    print("hello world in func(ff())")
+end
+    -- local a = tonumber("3")
 -- local a = 0
 -- local b = 1
 -- local c = a + b

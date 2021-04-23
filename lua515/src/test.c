@@ -29,6 +29,13 @@ int t_add(lua_State *L) {
     return 1;
 }
 
+int t_db(lua_State *L) {
+    lua_Debug ar;
+    lua_getfield(L, LUA_GLOBALSINDEX, "ff"); /* get global 'f' */
+    lua_getinfo(L, ">S", &ar);
+    printf("%d\n", ar.linedefined);
+}
+
 int main(int argc, char *argv[]) {
     char buf[80];   
     getcwd(buf,sizeof(buf));   
@@ -39,6 +46,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
     luaL_openlibs(vm);  /* open libraries */
+
 
     lua_pushcfunction(vm, t_add);
     lua_pushinteger(vm, 1);
@@ -61,5 +69,7 @@ int main(int argc, char *argv[]) {
        printf("call fail, ret(%d)", ret);
        return -2;
    }
+
+       t_db(vm);
 }
 
