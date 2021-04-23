@@ -148,7 +148,7 @@ LUALIB_API void luaL_checktype (lua_State *L, int narg, int t) {
     tag_error(L, narg, t);
 }
 
-
+/* narg索引对应的values是不是一个合法的值 */
 LUALIB_API void luaL_checkany (lua_State *L, int narg) {
   if (lua_type(L, narg) == LUA_TNONE)
     luaL_argerror(L, narg, "value expected");
@@ -205,7 +205,7 @@ LUALIB_API int luaL_getmetafield (lua_State *L, int obj, const char *event) {
     return 0;
   lua_pushstring(L, event);
   lua_rawget(L, -2);
-  if (lua_isnil(L, -1)) {
+  if (lua_isnil(L, -1)) {	/* 移除元表和event */
     lua_pop(L, 2);  /* remove metatable and metafield */
     return 0;
   }
@@ -215,7 +215,7 @@ LUALIB_API int luaL_getmetafield (lua_State *L, int obj, const char *event) {
   }
 }
 
-
+/* 若obj有元表，且元表中有event则event(ojb), 保留结果在栈顶                   */
 LUALIB_API int luaL_callmeta (lua_State *L, int obj, const char *event) {
   obj = abs_index(L, obj);
   if (!luaL_getmetafield(L, obj, event))  /* no metafield? */

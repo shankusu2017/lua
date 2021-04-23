@@ -17,7 +17,7 @@ int loadFile(lua_State *vm, char *path) {
     const char *rea;
     size_t len;
     rea = luaL_checklstring(vm, -1, &len);
-    printf("parse file(%s) fail, reason(%s)", rea);
+    printf("parse file(%s) fail, reason(%s)\n", rea);
     return -1;
 }
 
@@ -25,7 +25,7 @@ int t_add(lua_State *L) {
     lua_Integer sum = 0;
     sum = lua_tointeger(L, -1) + lua_tointeger(L, -2);
     lua_pushinteger(L, sum);
-    printf("sum(%d)", sum);
+    printf("sum(%d)\n", sum);
     return 1;
 }
 
@@ -46,13 +46,16 @@ int main(int argc, char *argv[]) {
     lua_call(vm, 2, 1);
     lua_Integer sum;
     sum = lua_tointeger(vm, -1);
+    lua_settop(vm, 0);   // 扔掉返回值
 
    int ret = 0;
+   printf("load lua.script\n");
    ret = loadFile(vm, "../script/opcode.lua");
    if (0 != ret) {
        printf("load file fail, ret(%d)", ret);
        return -2;
    }
+   printf("execute lua.script\n");
    ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
    if (0 != ret) {
        printf("call fail, ret(%d)", ret);

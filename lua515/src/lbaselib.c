@@ -27,6 +27,7 @@
 ** If you need, you can define your own `print' function, following this
 ** model but changing `fputs' to put the strings at a proper place
 ** (a console window or a log file, for instance).
+** 将输入参数转换为string后挨个输出
 */
 static int luaB_print (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
@@ -52,9 +53,9 @@ static int luaB_print (lua_State *L) {
 
 static int luaB_tonumber (lua_State *L) {
   int base = luaL_optint(L, 2, 10);
-  if (base == 10) {  /* standard conversion */
+  if (base == 10) {  /* standard conversion 默认10进制*/
     luaL_checkany(L, 1);
-    if (lua_isnumber(L, 1)) {
+    if (lua_isnumber(L, 1)) {	// 只要idx=1是num或能转换成num均可 */
       lua_pushnumber(L, lua_tonumber(L, 1));
       return 1;
     }
@@ -67,7 +68,7 @@ static int luaB_tonumber (lua_State *L) {
     n = strtoul(s1, &s2, base);
     if (s1 != s2) {  /* at least one valid digit? */
       while (isspace((unsigned char)(*s2))) s2++;  /* skip trailing spaces */
-      if (*s2 == '\0') {  /* no invalid trailing characters? */
+      if (*s2 == '\0') {  /* no invalid trailing characters? 输入字符能全部有效的转发 */
         lua_pushnumber(L, (lua_Number)n);
         return 1;
       }
@@ -129,7 +130,7 @@ static void getfunc (lua_State *L, int opt) {
   }
 }
 
-
+/* 查找某个fun的env或者某层函数的env */
 static int luaB_getfenv (lua_State *L) {
   getfunc(L, 1);
   if (lua_iscfunction(L, -1))  /* is a C function? */
@@ -139,7 +140,7 @@ static int luaB_getfenv (lua_State *L) {
   return 1;
 }
 
-
+/* 同上，get变为set */
 static int luaB_setfenv (lua_State *L) {
   luaL_checktype(L, 2, LUA_TTABLE);
   getfunc(L, 0);
@@ -169,7 +170,7 @@ static int luaB_rawequal (lua_State *L) {
 static int luaB_rawget (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checkany(L, 2);
-  lua_settop(L, 2);
+  lua_settop(L, 2);	/* 复制一份key，看得出来，函数内部都尽量保留原始的传入参数 */
   lua_rawget(L, 1);
   return 1;
 }
@@ -358,7 +359,7 @@ static int luaB_unpack (lua_State *L) {
 static int luaB_select (lua_State *L) {
   int n = lua_gettop(L);
   if (lua_type(L, 1) == LUA_TSTRING && *lua_tostring(L, 1) == '#') {
-    lua_pushinteger(L, n-1);
+    lua_pushinteger(L, n-1);	// 返回参数总数
     return 1;
   }
   else {
@@ -376,14 +377,14 @@ static int luaB_pcall (lua_State *L) {
   luaL_checkany(L, 1);
   status = lua_pcall(L, lua_gettop(L) - 1, LUA_MULTRET, 0);
   lua_pushboolean(L, (status == 0));
-  lua_insert(L, 1);
+  lua_insert(L, 1);	/* 将运行结果放到第一个返回slot这里 */
   return lua_gettop(L);  /* return status + all results */
 }
 
 
 static int luaB_xpcall (lua_State *L) {
   int status;
-  luaL_checkany(L, 2);
+  luaL_checkany(L, 2);	// xpcall(f, errHdl, ...),所以至少需要有两个参数 
   lua_settop(L, 2);
   lua_insert(L, 1);  /* put error function under function to be called */
   status = lua_pcall(L, 0, LUA_MULTRET, 1);
@@ -443,7 +444,7 @@ static int luaB_newproxy (lua_State *L) {
   return 1;
 }
 
-
+/* luaB_ B表示basic之意 */
 static const luaL_Reg base_funcs[] = {
   {"assert", luaB_assert},
   {"collectgarbage", luaB_collectgarbage},
@@ -618,7 +619,7 @@ static const luaL_Reg co_funcs[] = {
 static void auxopen (lua_State *L, const char *name,
                      lua_CFunction f, lua_CFunction u) {
   lua_pushcfunction(L, u);
-  lua_pushcclosure(L, f, 1);
+  lua_pushcclosure(L, f, 1);	// 1个upvalues就是上面的u
   lua_setfield(L, -2, name);
 }
 
@@ -651,7 +652,7 @@ static void base_open (lua_State *L) {
 
 LUALIB_API int luaopen_base (lua_State *L) {
   base_open(L);
-  luaL_register(L, LUA_COLIBNAME, co_funcs);
+  luaL_register(L, LUA_COLIBNAME, co_funcs);	// 顺带注册携程库
   // 上面两个函数调用结束后，栈上多出 G[_G].idx==-2, G[coroutinue].idx==-1两张表,所以这里返回2
   return 2;
 }

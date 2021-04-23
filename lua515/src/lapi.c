@@ -162,7 +162,7 @@ LUA_API int lua_gettop (lua_State *L) {
   return cast_int(L->top - L->base);
 }
 
-
+/* idx:正数，表示将栈中元素个数扩充到N,负数：L->top+=idx+1 */
 LUA_API void lua_settop (lua_State *L, int idx) {
   lua_lock(L);
   if (idx >= 0) {
@@ -585,7 +585,7 @@ LUA_API void lua_createtable (lua_State *L, int narray, int nrec) {
   lua_unlock(L);
 }
 
-
+/* idx对应的values是否有元表，若有则压入栈顶 */
 LUA_API int lua_getmetatable (lua_State *L, int objindex) {
   const TValue *obj;
   Table *mt = NULL;
@@ -669,7 +669,7 @@ LUA_API void lua_setfield (lua_State *L, int idx, const char *k) {
   lua_unlock(L);
 }
 
-/* idx[top-2] = top-1 */
+/* idx[top-2] = top-1, top-=2 */
 LUA_API void lua_rawset (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -793,7 +793,7 @@ LUA_API void lua_call (lua_State *L, int nargs, int nresults) {
 */
 struct CallS {  /* data to `f_call' */
   StkId func;
-  int nresults;
+  int nresults;	/* 本次调用期待返回的函数个数 func()-->nresult=0+1, local a, b = func()--->nresults=2+1, funA(funB())--->LUA_MULTRET(-1) */
 };
 
 
@@ -809,7 +809,7 @@ LUA_API int lua_pcall (lua_State *L, int nargs, int nresults, int errfunc) {
   int status;
   ptrdiff_t func;
   lua_lock(L);
-  api_checknelems(L, nargs+1);
+  api_checknelems(L, nargs+1);	// fun+nargs=nargs+1
   checkresults(L, nargs, nresults);
   if (errfunc == 0)
     func = 0;
