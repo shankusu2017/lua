@@ -95,7 +95,9 @@ static void treatstackoption (lua_State *L, lua_State *L1, const char *fname) {
   lua_setfield(L, -2, fname);
 }
 
-/* debug.getinfo ([thread,] function [, what]) */
+/* define: ([thread,] function [, what]) 
+* 重点函数：最好通读
+*/
 static int db_getinfo (lua_State *L) {
   lua_Debug ar;
   int arg;
@@ -140,13 +142,17 @@ static int db_getinfo (lua_State *L) {
   return 1;  /* return table */
 }
     
-
+/* define: debug.getlocal ([thread,] level, local)
+ * 尝试将指定thread的level调用层的第n个local变量的name,val返回给L的栈
+*/
 static int db_getlocal (lua_State *L) {
   int arg;
-  lua_State *L1 = getthread(L, &arg);
+  /* 确定目标thread(因为可以被C和Lua调用，C可以指定目标thread */
+  lua_State *L1 = getthread(L, &arg);	
   lua_Debug ar;
   const char *name;
-  if (!lua_getstack(L1, luaL_checkint(L, arg+1), &ar))  /* out of range? */
+  /* out of range?,luaL_checkint:必须传入一个level，下同 */
+  if (!lua_getstack(L1, luaL_checkint(L, arg+1), &ar))  
     return luaL_argerror(L, arg+1, "level out of range");
   name = lua_getlocal(L1, &ar, luaL_checkint(L, arg+2));
   if (name) {
@@ -161,7 +167,7 @@ static int db_getlocal (lua_State *L) {
   }
 }
 
-
+/* debug.setlocal ([thread,] level, local, value) */
 static int db_setlocal (lua_State *L) {
   int arg;
   lua_State *L1 = getthread(L, &arg);
@@ -175,10 +181,10 @@ static int db_setlocal (lua_State *L) {
   return 1;
 }
 
-
+/* 尝试都或写指定的upvalue */
 static int auxupvalue (lua_State *L, int get) {
   const char *name;
-  int n = luaL_checkint(L, 2);
+  int n = luaL_checkint(L, 2);	/* 第二个参数的类型"必须"是个num */
   luaL_checktype(L, 1, LUA_TFUNCTION);
   if (lua_iscfunction(L, 1)) return 0;  /* cannot touch C upvalues from Lua */
   name = get ? lua_getupvalue(L, 1, n) : lua_setupvalue(L, 1, n);
@@ -188,14 +194,14 @@ static int auxupvalue (lua_State *L, int get) {
   return get + 1;
 }
 
-
+/* define: debug.getupvalue (func, up) */
 static int db_getupvalue (lua_State *L) {
   return auxupvalue(L, 1);
 }
 
 
 static int db_setupvalue (lua_State *L) {
-  luaL_checkany(L, 3);
+  luaL_checkany(L, 3);	/* 这里判断了参数个数，后面就没有再一个一个判断了 */
   return auxupvalue(L, 0);
 }
 
@@ -241,7 +247,7 @@ static char *unmakemask (int mask, char *smask) {
   return smask;
 }
 
-
+/* 提取C的注册表中的KEY_HOOK表，没有则构建 */
 static void gethooktable (lua_State *L) {
   lua_pushlightuserdata(L, (void *)&KEY_HOOK);
   lua_rawget(L, LUA_REGISTRYINDEX);
@@ -254,7 +260,7 @@ static void gethooktable (lua_State *L) {
   }
 }
 
-
+/* debug.sethook ([thread,] hook, mask [, count]) */
 static int db_sethook (lua_State *L) {
   int arg, mask, count;
   lua_Hook func;
@@ -278,7 +284,7 @@ static int db_sethook (lua_State *L) {
   return 0;
 }
 
-
+/* debug.gethook ([thread]) */
 static int db_gethook (lua_State *L) {
   int arg;
   lua_State *L1 = getthread(L, &arg);

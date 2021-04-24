@@ -66,12 +66,19 @@
 #define iswhite(x)      test2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)	
 /* 是黑色吗bit[2]为1即可 */
 #define isblack(x)      testbit((x)->gch.marked, BLACKBIT)
-/* 不是黑，同时也不是任何一种白，则是graybit[2,1,0]均为0 */
+/* 不是黑，同时也不是任何一种白，bit.idx[2,1,0]均为0 */
 #define isgray(x)	(!isblack(x) && !iswhite(x))	
 /* 保留 bit[7,2]位的数据，将bit[1,0]翻转 */
 #define otherwhite(g)	(g->currentwhite ^ WHITEBITS)
-/* 忽略bit[7,2] 若curWhite[1,1]->isdead[x,x]=false, curWhite[1,0]->isdead[x,1]=true,curWhite[0,1]->isdead[1,x]=true*/
+
+/* 忽略bit[7,2] curWhite[1,0]->isdead[x,1]=true,curWhite[0,1]->isdead[1,x]=true 
+ * curWhite[0,0]->isdead[x,x]=true,curWhite[1,1]->isdead[x,x]=false, 
+ *
+ * 下面这句注释，画图理解，多理解理解
+ * 看的出来curWhite中的bit,idx[1,0]中某位bit=0表示此bit的为1的object为otherwhite，是"垃圾"
+*/
 #define isdead(g,v)	((v)->gch.marked & otherwhite(g) & WHITEBITS)	/* 是dead(另一种白)吗 */
+
 /* 保留bit[7,2],翻转bit[1,0] */
 #define changewhite(x)	((x)->gch.marked ^= WHITEBITS)
 /* 标记bit[2]为1,其它不变 */

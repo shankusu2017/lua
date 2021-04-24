@@ -360,7 +360,7 @@ struct lua_Debug {
   int lastlinedefined;	/* (S) */
   char short_src[LUA_IDSIZE]; /* (S) */
   /* private part */
-  int i_ci;  /* active function */
+  int i_ci;  /* active function: L->base_ci:是第0层，往后调用一次+1,(忽略尾调用?) */
 };
 
 /* }====================================================================== */

@@ -89,13 +89,25 @@ int luaO_rawequalObj (const TValue *t1, const TValue *t2) {
 
 int luaO_str2d (const char *s, lua_Number *result) {
   char *endptr;
-  *result = lua_str2number(s, &endptr);
-  if (endptr == s) return 0;  /* conversion failed */
+  /* 尝试转换下 */
+  *result = lua_str2number(s, &endptr);	
+  /* 一个字符都转换不了,返回失败 */
+  if (endptr == s) return 0;  /*  conversion failed */
+
+  /* 可能是16进制的数字 */
   if (*endptr == 'x' || *endptr == 'X')  /* maybe an hexadecimal constant? */
     *result = cast_num(strtoul(s, &endptr, 16));
+
+  /* 输入的字符串全部转换完毕，返回成功 */
   if (*endptr == '\0') return 1;  /* most common case */
+
+  /* 跳过字符串后面的空格 */
   while (isspace(cast(unsigned char, *endptr))) endptr++;
+
+  /* 字符串后面跟了非法字符 */
   if (*endptr != '\0') return 0;  /* invalid trailing characters? */
+
+  /* 转换成功 */
   return 1;
 }
 

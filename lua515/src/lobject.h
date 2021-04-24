@@ -236,7 +236,7 @@ typedef struct Proto {
   struct Proto **p;  /* functions defined inside the function */
   int *lineinfo;  /* map from opcodes to source lines,   lineinfo[code.idx]->code.fileLine */
   struct LocVar *locvars;  /* information about local variables */
-  TString **upvalues;  /* upvalue names */
+  TString **upvalues;  /* upvalue names： upvalues的名字的数组 */
   TString  *source;	/* 所在源文件的带路径的文件名 */
   int sizeupvalues;
   int sizek;  /* size of `k' */
@@ -261,7 +261,7 @@ typedef struct Proto {
 
 
 typedef struct LocVar {
-  TString *varname;
+  TString *varname;	/* 变量名 */
   int startpc;  /* first point where variable is active */
   int endpc;    /* first point where variable is dead */
 } LocVar;

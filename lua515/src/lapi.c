@@ -1037,12 +1037,16 @@ LUA_API void *lua_newuserdata (lua_State *L, size_t size) {
 
 
 
-
+/* 获取fi指定的func的object的第N个upvalue，将其存放在val上 */
 static const char *aux_upvalue (StkId fi, int n, TValue **val) {
   Closure *f;
+  
+  /* 作为api层，这里还是要判断下，毕竟不知道调用者传了个什么值过来 */
   if (!ttisfunction(fi)) return NULL;
+  
   f = clvalue(fi);
   if (f->c.isC) {
+  	/* n 范围非法 */
     if (!(1 <= n && n <= f->c.nupvalues)) return NULL;
     *val = &f->c.upvalue[n-1];
     return "";
@@ -1055,7 +1059,10 @@ static const char *aux_upvalue (StkId fi, int n, TValue **val) {
   }
 }
 
-
+/* 查找funcindex->closure中的第N(从1开始)个upvalues的值 
+** 找到则将其val压入栈顶，并返回其名字
+** 找不到直接返回NIL
+*/
 LUA_API const char *lua_getupvalue (lua_State *L, int funcindex, int n) {
   const char *name;
   TValue *val;

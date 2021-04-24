@@ -80,16 +80,17 @@ LUA_API int lua_gethookcount (lua_State *L) {
   return L->basehookcount;
 }
 
-
+/* 按照传入的level尝试确定ar->i_ci（want的调用层值）的值 */
 LUA_API int lua_getstack (lua_State *L, int level, lua_Debug *ar) {
   int status;
   CallInfo *ci;
   lua_lock(L);
+  /* ci> L->base_ci：虚拟机初始状态下的nil-call信息,所以不能回退到那一层 */
   for (ci = L->ci; level > 0 && ci > L->base_ci; ci--) {
     level--;
     if (f_isLua(ci))  /* Lua function? */
       level -= ci->tailcalls;  /* skip lost tail calls */
-  }
+  }/* 传入level=0或者level>0,回滚后可以确定到指定的level'call */
   if (level == 0 && ci > L->base_ci) {  /* level found? */
     status = 1;
     ar->i_ci = cast_int(ci - L->base_ci);
@@ -111,10 +112,11 @@ static Proto *getluaproto (CallInfo *ci) {
 
 static const char *findlocal (lua_State *L, CallInfo *ci, int n) {
   const char *name;
-  Proto *fp = getluaproto(ci);
+  Proto *fp = getluaproto(ci);	/* lua还是C函数 ？ */
   if (fp && (name = luaF_getlocalname(fp, n, currentpc(L, ci))) != NULL)
     return name;  /* is a local variable in a Lua function */
   else {
+  	/* 有可能本层调用是个C函数，或者ci指向了state的初始状态 */
     StkId limit = (ci == L->ci) ? L->top : (ci+1)->func;
     if (limit - ci->base >= n && n > 0)  /* is 'n' inside 'ci' stack? */
       return "(*temporary)";
@@ -123,10 +125,12 @@ static const char *findlocal (lua_State *L, CallInfo *ci, int n) {
   }
 }
 
-
+/* 尝试查找ar指定的调用层的栈中的第N个localvar的值，找不到则返回NIL
+ * 找到则将其values压入栈并返回其name
+*/
 LUA_API const char *lua_getlocal (lua_State *L, const lua_Debug *ar, int n) {
-  CallInfo *ci = L->base_ci + ar->i_ci;
-  const char *name = findlocal(L, ci, n);
+  CallInfo *ci = L->base_ci + ar->i_ci;	/* 重定位调用层 */
+  const char *name = findlocal(L, ci, n);	/* 查找该调用层的指定localVal */
   lua_lock(L);
   if (name)
       luaA_pushobject(L, ci->base + (n - 1));

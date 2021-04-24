@@ -101,7 +101,9 @@ LUALIB_API const char *(luaL_findtable) (lua_State *L, int idx,
 		((void)((cond) || luaL_argerror(L, (numarg), (extramsg))))
 #define luaL_checkstring(L,n)	(luaL_checklstring(L, (n), NULL))
 #define luaL_optstring(L,n,d)	(luaL_optlstring(L, (n), (d), NULL))
+/* 栈的第N个元素的类型为int或能转成int(目前仅支持正确格式的string)   */
 #define luaL_checkint(L,n)	((int)luaL_checkinteger(L, (n)))
+/* 若栈的第N个元素为NIL或不存在则采用d，反之，尝试将其转换为int */
 #define luaL_optint(L,n,d)	((int)luaL_optinteger(L, (n), (d)))
 #define luaL_checklong(L,n)	((long)luaL_checkinteger(L, (n)))
 #define luaL_optlong(L,n,d)	((long)luaL_optinteger(L, (n), (d)))

@@ -159,10 +159,12 @@ void luaF_freeclosure (lua_State *L, Closure *c) {
 /*
 ** Look for n-th local variable at line `line' in function `func'.
 ** Returns NULL if not found.
+** 查找在pc指令之前激活，pc指令之后失效的第N个localvars变量的名字
 */
 const char *luaF_getlocalname (const Proto *f, int local_number, int pc) {
   int i;
   for (i = 0; i<f->sizelocvars && f->locvars[i].startpc <= pc; i++) {
+  	/* 变量在pc指向的指令之前激活，在pc指向的指令之后失效 */
     if (pc < f->locvars[i].endpc) {  /* is variable active? */
       local_number--;
       if (local_number == 0)
