@@ -108,7 +108,7 @@ LUALIB_API int luaL_checkoption (lua_State *L, int narg, const char *def,
                        lua_pushfstring(L, "invalid option " LUA_QS, name));
 }
 
-
+/* 获取REG中的域对应的表，没有则构建 */
 LUALIB_API int luaL_newmetatable (lua_State *L, const char *tname) {
   lua_getfield(L, LUA_REGISTRYINDEX, tname);  /* get registry.name */
   if (!lua_isnil(L, -1))  /* name already in use? */
@@ -120,7 +120,7 @@ LUALIB_API int luaL_newmetatable (lua_State *L, const char *tname) {
   return 1;
 }
 
-
+/* ud代表的userdata的metatable是否和reg[tname]一致？ */
 LUALIB_API void *luaL_checkudata (lua_State *L, int ud, const char *tname) {
   void *p = lua_touserdata(L, ud);
   if (p != NULL) {  /* value is a userdata? */
@@ -241,12 +241,16 @@ static int libsize (const luaL_Reg *l) {
 
 LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
                               const luaL_Reg *l, int nup) {
-  /* step1: reg[_LOADED] = reg[_LOADED] or {}
+  /* 
+   * libname非空：
+   * step1: reg[_LOADED] = reg[_LOADED] or {}
    * step2: G[libname] = G[libname] or {}
    * step3: reg[_LOADED][libname] = G[libname]
    * step4: 栈仅多了一个G[libname]
    * step5: G[libname].name = func
    * step6: 栈上仅多出了一个G[libname]
+   * 
+   * libname为空：直接看代码，很好理解
    */                            
   if (libname) {	
     int size = libsize(l);

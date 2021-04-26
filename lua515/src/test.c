@@ -70,6 +70,6 @@ int main(int argc, char *argv[]) {
        return -2;
    }
 
-       t_db(vm);
+    t_db(vm);
 }
 

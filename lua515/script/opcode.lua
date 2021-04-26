@@ -6,6 +6,24 @@ print("type(t1.getmetatable())", type(getmetatable(t1)))
 function ff(x, y)
     print("hello world in func(ff())")
 end
+
+function ff()
+	print("hello in ff()")
+	local str = debug.traceback("debug.traceback")
+	print(str)
+end
+
+function ff2()
+	ff()
+end
+
+
+function ff3()
+	ff2()
+end
+
+
+ff3()
     -- local a = tonumber("3")
 -- local a = 0
 -- local b = 1

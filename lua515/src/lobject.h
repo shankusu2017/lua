@@ -219,7 +219,7 @@ typedef union Udata {
     CommonHeader;
     struct Table *metatable;
     struct Table *env;
-    size_t len;
+    size_t len;	/* 负载(load)数据长度 */
   } uv;
 } Udata;
 

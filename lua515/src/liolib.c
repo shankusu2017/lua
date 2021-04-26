@@ -53,12 +53,13 @@ static void fileerror (lua_State *L, int arg, const char *filename) {
 
 #define tofilep(L)	((FILE **)luaL_checkudata(L, 1, LUA_FILEHANDLE))
 
-
+/* io.type (obj) */
 static int io_type (lua_State *L) {
   void *ud;
   luaL_checkany(L, 1);
   ud = lua_touserdata(L, 1);
   lua_getfield(L, LUA_REGISTRYINDEX, LUA_FILEHANDLE);
+  /* 输入数据是否合法？*/
   if (ud == NULL || !lua_getmetatable(L, 1) || !lua_rawequal(L, -2, -1))
     lua_pushnil(L);  /* not a file */
   else if (*((FILE **)ud) == NULL)
@@ -68,7 +69,7 @@ static int io_type (lua_State *L) {
   return 1;
 }
 
-
+/* 尝试将userdata转为FILE */
 static FILE *tofile (lua_State *L) {
   FILE **f = tofilep(L);
   if (*f == NULL)
@@ -82,12 +83,17 @@ static FILE *tofile (lua_State *L) {
 ** When creating file handles, always creates a `closed' file handle
 ** before opening the actual file; so, if there is a memory error, the
 ** file is not left opened.
+**
+** 构建一个空负载的userData，初始化其metatable后，返回
 */
 static FILE **newfile (lua_State *L) {
   FILE **pf = (FILE **)lua_newuserdata(L, sizeof(FILE *));
   *pf = NULL;  /* file handle is currently `closed' */
-  luaL_getmetatable(L, LUA_FILEHANDLE);
+
+  /* 这里对打开的文件句柄做统一的metatable处理 */
+  luaL_getmetatable(L, LUA_FILEHANDLE);	
   lua_setmetatable(L, -2);
+  
   return pf;
 }
 
@@ -123,14 +129,14 @@ static int io_fclose (lua_State *L) {
   return pushresult(L, ok, NULL);
 }
 
-
+/* idx[1].env.__close(idx[-1]) */
 static int aux_close (lua_State *L) {
   lua_getfenv(L, 1);
   lua_getfield(L, -1, "__close");
   return (lua_tocfunction(L, -1))(L);
 }
 
-
+/* io.close ([file]) */
 static int io_close (lua_State *L) {
   if (lua_isnone(L, 1))
     lua_rawgeti(L, LUA_ENVIRONINDEX, IO_OUTPUT);
@@ -157,7 +163,7 @@ static int io_tostring (lua_State *L) {
   return 1;
 }
 
-
+/* io.open (filename [, mode]) */
 static int io_open (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   const char *mode = luaL_optstring(L, 2, "r");
@@ -186,7 +192,7 @@ static int io_tmpfile (lua_State *L) {
   return (*pf == NULL) ? pushresult(L, 0, NULL) : 1;
 }
 
-
+/* 这里findex：file index而非一般意义上的statck[index] */
 static FILE *getiofile (lua_State *L, int findex) {
   FILE *f;
   lua_rawgeti(L, LUA_ENVIRONINDEX, findex);
@@ -200,24 +206,24 @@ static FILE *getiofile (lua_State *L, int findex) {
 static int g_iofile (lua_State *L, int f, const char *mode) {
   if (!lua_isnoneornil(L, 1)) {
     const char *filename = lua_tostring(L, 1);
-    if (filename) {
+    if (filename) {	/* 可能传入的是带路径的文件名 */
       FILE **pf = newfile(L);
       *pf = fopen(filename, mode);
       if (*pf == NULL)
         fileerror(L, 1, filename);
     }
-    else {
+    else {	/* 可能传入的是代表文件句柄的userData */
       tofile(L);  /* check that it's a valid file handle */
       lua_pushvalue(L, 1);
     }
-    lua_rawseti(L, LUA_ENVIRONINDEX, f);
+    lua_rawseti(L, LUA_ENVIRONINDEX, f);	/* 更新值 */
   }
   /* return current value */
   lua_rawgeti(L, LUA_ENVIRONINDEX, f);
   return 1;
 }
 
-
+/* io.input ([file]) */
 static int io_input (lua_State *L) {
   return g_iofile(L, IO_INPUT, "r");
 }

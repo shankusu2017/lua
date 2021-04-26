@@ -211,7 +211,7 @@ LUA_API void lua_replace (lua_State *L, int idx) {
   api_checknelems(L, 1);
   o = index2adr(L, idx);
   api_checkvalidindex(L, o);
-  if (idx == LUA_ENVIRONINDEX) {
+  if (idx == LUA_ENVIRONINDEX) {	/* 修改func的环境变量，最好结合index2addr来看 */
     Closure *func = curr_func(L);
     api_check(L, ttistable(L->top - 1)); 
     func->c.env = hvalue(L->top - 1);
@@ -341,7 +341,7 @@ LUA_API int lua_toboolean (lua_State *L, int idx) {
   return !l_isfalse(o);
 }
 
-
+/* 目前仅string和特定格式的double能转string */
 LUA_API const char *lua_tolstring (lua_State *L, int idx, size_t *len) {
   StkId o = index2adr(L, idx);
   if (!ttisstring(o)) {
@@ -1023,7 +1023,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud) {
   lua_unlock(L);
 }
 
-
+/* 按照给出的内存尺寸要求构建一个userdata，将其压入栈，返回load地址 */
 LUA_API void *lua_newuserdata (lua_State *L, size_t size) {
   Udata *u;
   lua_lock(L);

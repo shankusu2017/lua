@@ -702,12 +702,13 @@ void luaC_linkupval (lua_State *L, UpVal *uv) {
   o->gch.next = g->rootgc;  /* link upvalue into `rootgc' list */
   g->rootgc = o;
   if (isgray(o)) { 
+  	/* upval是对已知对象的引用，不是新数据，这里需要barrier(https://shankusu2017.github.io/lua/%E4%BA%91%E9%A3%8E%E7%9A%84Blog-Lua%20GC%20%E7%9A%84%E6%BA%90%E7%A0%81%E5%89%96%E6%9E%901/) */
     if (g->gcstate == GCSpropagate) {
       gray2black(o);  /* closed upvalues need barrier */
       luaC_barrier(L, uv, uv->v);
     }
     else {  /* sweep phase: sweep it (turning it into white) */
-      makewhite(g, o);
+      makewhite(g, o);	/* 后退一步 */
       lua_assert(g->gcstate != GCSfinalize && g->gcstate != GCSpause);
     }
   }
