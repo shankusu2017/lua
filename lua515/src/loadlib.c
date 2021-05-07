@@ -66,14 +66,14 @@ static void ll_unloadlib (void *lib) {
 
 
 static void *ll_load (lua_State *L, const char *path) {
-  void *lib = dlopen(path, RTLD_NOW);
+  void *lib = dlopen(path, RTLD_NOW);	/* 加载动态库 */
   if (lib == NULL) lua_pushstring(L, dlerror());
   return lib;
 }
 
 
 static lua_CFunction ll_sym (lua_State *L, void *lib, const char *sym) {
-  lua_CFunction f = (lua_CFunction)dlsym(lib, sym);
+  lua_CFunction f = (lua_CFunction)dlsym(lib, sym);	/* dlsym：根据动态链接库操作句柄与符号，返回符号对应的地址，不但可以获取函数地址，也可以获取变量地址 */
   if (f == NULL) lua_pushstring(L, dlerror());
   return f;
 }

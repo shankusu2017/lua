@@ -101,7 +101,7 @@ static int luaB_getmetatable (lua_State *L) {
   return 1;  /* returns either __metatable field (if present) or metatable */
 }
 
-
+/* lua代码层面上：只能给tbl设置元表，不能给其它的类型设置元表 */
 static int luaB_setmetatable (lua_State *L) {
   int t = lua_type(L, 2);
   luaL_checktype(L, 1, LUA_TTABLE);
@@ -625,13 +625,13 @@ static void auxopen (lua_State *L, const char *name,
 
 
 static void base_open (lua_State *L) {
-  /* set global _G 等效于lua中的 _G.G = _G */
+  /* set global _G 等效于lua中的 G._G = G */
   lua_pushvalue(L, LUA_GLOBALSINDEX);
   lua_setglobal(L, "_G");
   
   /* open lib into global table */
   luaL_register(L, "_G", base_funcs);	/* 将base_funcs中的key.val 进行如下赋值G[_G]key=val,栈顶多出一个G[_G]的表 */
-  /* 栈顶多出一个G_G的表 */
+  /* 栈顶多出一个G._G的表 */
   
   lua_pushliteral(L, LUA_VERSION);
   lua_setglobal(L, "_VERSION");  /* set global _VERSION */
@@ -652,7 +652,7 @@ static void base_open (lua_State *L) {
 
 LUALIB_API int luaopen_base (lua_State *L) {
   base_open(L);
-  luaL_register(L, LUA_COLIBNAME, co_funcs);	// 顺带注册携程库
+  luaL_register(L, LUA_COLIBNAME, co_funcs);	// 顺带注册协程库
   // 上面两个函数调用结束后，栈上多出 G[_G].idx==-2, G[coroutinue].idx==-1两张表,所以这里返回2
   return 2;
 }

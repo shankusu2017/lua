@@ -117,7 +117,7 @@ static void close_state (lua_State *L) {
   (*g->frealloc)(g->ud, fromstate(L), state_size(LG), 0);
 }
 
-
+/* L1->env尚未赋值，也为初始化，是一个随机值 */
 lua_State *luaE_newthread (lua_State *L) {
   lua_State *L1 = tostate(luaM_malloc(L, state_size(lua_State)));
   luaC_link(L, obj2gco(L1), LUA_TTHREAD);

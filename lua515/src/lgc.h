@@ -75,7 +75,7 @@
  * curWhite[0,0]->isdead[x,x]=true,curWhite[1,1]->isdead[x,x]=false, 
  *
  * 下面这句注释，画图理解，多理解理解
- * 看的出来curWhite中的bit,idx[1,0]中某位bit=0表示此bit的为1的object为otherwhite，是"垃圾"
+ * 看的出来curWhite中的bit.idx[1,0]中某位bit=0表示此bit的为1的object为otherwhite，是"垃圾"
 */
 #define isdead(g,v)	((v)->gch.marked & otherwhite(g) & WHITEBITS)	/* 是dead(另一种白)吗 */
 

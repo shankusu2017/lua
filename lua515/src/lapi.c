@@ -201,7 +201,7 @@ LUA_API void lua_insert (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-/* 用栈顶元素替换idx指定的值，再删除栈顶元素 */
+/* idx[env] = top, top--,原来slot的值被抛弃 */
 LUA_API void lua_replace (lua_State *L, int idx) {
   StkId o;
   lua_lock(L);
@@ -341,7 +341,9 @@ LUA_API int lua_toboolean (lua_State *L, int idx) {
   return !l_isfalse(o);
 }
 
-/* 目前仅string和特定格式的double能转string */
+/* 目前仅string和特定格式的double能转string
+ * 若发生转换,将转换结果放到原来参数的位置！！！！
+*/
 LUA_API const char *lua_tolstring (lua_State *L, int idx, size_t *len) {
   StkId o = index2adr(L, idx);
   if (!ttisstring(o)) {
@@ -682,7 +684,7 @@ LUA_API void lua_rawset (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-/* idx[n] = top-1 */
+/* idx[n] = top-1, top-- */
 LUA_API void lua_rawseti (lua_State *L, int idx, int n) {
   StkId o;
   lua_lock(L);

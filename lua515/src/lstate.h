@@ -102,7 +102,7 @@ struct lua_State {
   CommonHeader;
   lu_byte status;
   StkId top;  /* first free slot in the stack, 当前指向的addr是可用的！！！ */
-  StkId base;  /* base of current function */
+  StkId base;  /* base of current function, 当前调用frame中，除调用函数外，第一个传入参数的addr, base-1：当前被抵用函数的addr */
   global_State *l_G;
   CallInfo *ci;  /* call info for current function */
   const Instruction *savedpc;  /* `savedpc' of current function */

@@ -86,7 +86,7 @@ static int setn (lua_State *L) {
   return 1;
 }
 
-
+// table.insert (table, [pos,] value)
 static int tinsert (lua_State *L) {
   int e = aux_getn(L, 1) + 1;  /* first empty element */
   int pos;  /* where to insert new element */
@@ -114,7 +114,10 @@ static int tinsert (lua_State *L) {
   return 0;
 }
 
-
+/* table.remove (table [, pos]) 
+ ** tbl[pos] = tbl[pos+1]...
+ ** returns: tbl[pos]
+*/
 static int tremove (lua_State *L) {
   int e = aux_getn(L, 1);
   int pos = luaL_optint(L, 2, e);
@@ -140,7 +143,7 @@ static void addfield (lua_State *L, luaL_Buffer *b, int i) {
     luaL_addvalue(b);
 }
 
-
+// table.concat (table [, sep [, i [, j]]])
 static int tconcat (lua_State *L) {
   luaL_Buffer b;
   size_t lsep;

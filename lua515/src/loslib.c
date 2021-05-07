@@ -120,13 +120,13 @@ static int getfield (lua_State *L, const char *key, int d) {
   return res;
 }
 
-
+/* os.date ([format [, time]]) */
 static int os_date (lua_State *L) {
   const char *s = luaL_optstring(L, 1, "%c");
   time_t t = luaL_opt(L, (time_t)luaL_checknumber, 2, time(NULL));
   struct tm *stm;
   if (*s == '!') {  /* UTC? */
-    stm = gmtime(&t);
+    stm = gmtime(&t);	/* 返回格林威治时区的时间 */
     s++;  /* skip `!' */
   }
   else
@@ -166,7 +166,7 @@ static int os_date (lua_State *L) {
   return 1;
 }
 
-
+/* os.time ([table]) 传入nil则返回当前的UNIX时间戳，反之指定时间(本地)的UNIXhi时间戳 */
 static int os_time (lua_State *L) {
   time_t t;
   if (lua_isnoneornil(L, 1))  /* called without args? */
@@ -182,7 +182,7 @@ static int os_time (lua_State *L) {
     ts.tm_mon = getfield(L, "month", -1) - 1;
     ts.tm_year = getfield(L, "year", -1) - 1900;
     ts.tm_isdst = getboolfield(L, "isdst");
-    t = mktime(&ts);
+    t = mktime(&ts);	/* 将ts当作本地时区的时间 " */
   }
   if (t == (time_t)(-1))
     lua_pushnil(L);
@@ -200,7 +200,7 @@ static int os_difftime (lua_State *L) {
 
 /* }====================================================== */
 
-
+//os.setlocale (locale [, category])
 static int os_setlocale (lua_State *L) {
   static const int cat[] = {LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY,
                       LC_NUMERIC, LC_TIME};

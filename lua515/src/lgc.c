@@ -79,7 +79,7 @@ static void reallymarkobject (global_State *g, GCObject *o) {
     }
     case LUA_TUSERDATA: {	/* 为了加快此阶段的mark，直接将udata标记为black,将其引用的数据调用本函数继续快速标记下即可 */
       Table *mt = gco2u(o)->metatable;
-      gray2black(o);  /* udata are never gray,没有其它地方被引用了？，这里将其置black,下同？ */
+      gray2black(o);  /* udata are never gray ud最多可能引用mt,env，这里ud标记结束了，将其置black */
       if (mt) markobject(g, mt);	
       markobject(g, gco2u(o)->env);
       return;
@@ -545,7 +545,7 @@ static void atomic (lua_State *L) {
   g->gray = g->grayagain;
   g->grayagain = NULL;
   propagateall(g);
-  udsize = luaC_separateudata(L, 0);  /* separate userdata to be finalized */
+  udsize = luaC_separateudata(L, 0);  /* separate(分离) userdata to be finalized */
   marktmu(g);  /* mark `preserved' userdata */
   udsize += propagateall(g);  /* remark, to propagate `preserveness' */
   cleartable(g->weak);  /* remove collected objects from weak tables */

@@ -95,7 +95,7 @@ LUALIB_API int luaL_error (lua_State *L, const char *fmt, ...) {
 
 /* }====================================================== */
 
-
+/* 参数narg是否是后续lst数组中的某个元素之一，若narg无需则用def:default替代narg替代 */
 LUALIB_API int luaL_checkoption (lua_State *L, int narg, const char *def,
                                  const char *const lst[]) {
   const char *name = (def) ? luaL_optstring(L, narg, def) :
@@ -108,7 +108,10 @@ LUALIB_API int luaL_checkoption (lua_State *L, int narg, const char *def,
                        lua_pushfstring(L, "invalid option " LUA_QS, name));
 }
 
-/* 获取REG中的域对应的表，没有则构建 */
+/* 获取reg中的域对应的表，没有则构建,保留在stack->top, top++
+ ** 这里生成一份统一的meattable,整个c库(io,tbl)公用，节省MEM，加速程序运行
+ ** 挂在REG上，避免被gc?
+*/
 LUALIB_API int luaL_newmetatable (lua_State *L, const char *tname) {
   lua_getfield(L, LUA_REGISTRYINDEX, tname);  /* get registry.name */
   if (!lua_isnil(L, -1))  /* name already in use? */
@@ -243,12 +246,6 @@ LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
                               const luaL_Reg *l, int nup) {
   /* 
    * libname非空：
-   * step1: reg[_LOADED] = reg[_LOADED] or {}
-   * step2: G[libname] = G[libname] or {}
-   * step3: reg[_LOADED][libname] = G[libname]
-   * step4: 栈仅多了一个G[libname]
-   * step5: G[libname].name = func
-   * step6: 栈上仅多出了一个G[libname]
    * 
    * libname为空：直接看代码，很好理解
    */                            
@@ -257,16 +254,16 @@ LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
     /* check whether lib already exists */
   	// step1
     luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 1);	/* 查找reg[_LOADED]的表，没有则构建 */
-    lua_getfield(L, -1, libname);  /* get _LOADED[libname] */
+    lua_getfield(L, -1, libname);  /* get _LOADED[libname] */	
+	// step2
     if (!lua_istable(L, -1)) {  /* not found? */
       lua_pop(L, 1);  /* remove previous result */
       /* try global variable (and create one if it does not exist) */
-	  // step2
       if (luaL_findtable(L, LUA_GLOBALSINDEX, libname, size) != NULL)
         luaL_error(L, "name conflict for module " LUA_QS, libname);
 	  // step3
       lua_pushvalue(L, -1);
-      lua_setfield(L, -3, libname);  /* _LOADED[libname] = new table */
+      lua_setfield(L, -3, libname);  /* reg._LOADED[libname] = global.libname*/
     }
 	// step4
     lua_remove(L, -2);  /*  remove _LOADED table */
@@ -370,7 +367,7 @@ LUALIB_API const char *luaL_gsub (lua_State *L, const char *s, const char *p,
   return lua_tostring(L, -1);
 }
 
-/* top-1 = idx[fname]，
+/* top-1 = idx[fname]，top++
  * fname:_LOADED这种无需迭代，con2:xxx.yy.zzz 按照xx->yy->zz的顺序依次查找和构建(类似linux下mkdir -p命令)
  * 中途查找结果为空则构建指定格式的新表，结果为表则返回， 其它类型则返回错误 
 */
@@ -415,7 +412,7 @@ LUALIB_API const char *luaL_findtable (lua_State *L, int idx,
 
 #define LIMIT	(LUA_MINSTACK/2)
 
-
+/* 将buffer中的数据压到stack上，清空buffer,更新B->lvl */
 static int emptybuffer (luaL_Buffer *B) {
   size_t l = bufflen(B);
   if (l == 0) return 0;  /* put nothing on stack */
@@ -438,15 +435,17 @@ static void adjuststack (luaL_Buffer *B) {
       if (B->lvl - toget + 1 >= LIMIT || toplen > l) {
         toplen += l;
         toget++;
+      } else {
+	  	break;
       }
-      else break;
     } while (toget < B->lvl);
+	
     lua_concat(L, toget);
     B->lvl = B->lvl - toget + 1;
   }
 }
 
-
+/* 将当前的buf(若携带数据)压入栈顶 */
 LUALIB_API char *luaL_prepbuffer (luaL_Buffer *B) {
   if (emptybuffer(B))
     adjuststack(B);

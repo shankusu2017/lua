@@ -24,7 +24,7 @@
 #define uchar(c)        ((unsigned char)(c))
 
 
-
+/* define string.len */
 static int str_len (lua_State *L) {
   size_t l;
   luaL_checklstring(L, 1, &l);
@@ -32,14 +32,14 @@ static int str_len (lua_State *L) {
   return 1;
 }
 
-
+/* 负数，则从后往前数[-1,-2,-3]转成正数， 正数则直接返回 */
 static ptrdiff_t posrelat (ptrdiff_t pos, size_t len) {
   /* relative string position: negative means back from end */
   if (pos < 0) pos += (ptrdiff_t)len + 1;
   return (pos >= 0) ? pos : 0;
 }
 
-
+/* string.sub 生成子字符串top-1=sub, top++ */
 static int str_sub (lua_State *L) {
   size_t l;
   const char *s = luaL_checklstring(L, 1, &l);
@@ -53,18 +53,20 @@ static int str_sub (lua_State *L) {
   return 1;
 }
 
-
+/* string.reversed(反转) */
 static int str_reverse (lua_State *L) {
   size_t l;
   luaL_Buffer b;
   const char *s = luaL_checklstring(L, 1, &l);
   luaL_buffinit(L, &b);
+  /* 反向读入数据，将其存到站或buf中 */
   while (l--) luaL_addchar(&b, s[l]);
+  /* 整合上述数据放到栈上 */
   luaL_pushresult(&b);
   return 1;
 }
 
-
+/* string.lower 将可转小写的字母转为小写，不能转的不变 */
 static int str_lower (lua_State *L) {
   size_t l;
   size_t i;
@@ -845,13 +847,17 @@ static const luaL_Reg strlib[] = {
 
 
 static void createmetatable (lua_State *L) {
+  /* create tbl1 for type(string).mt }
   lua_createtable(L, 0, 1);  /* create metatable for strings */
   lua_pushliteral(L, "");  /* dummy string */
   lua_pushvalue(L, -2);
   lua_setmetatable(L, -2);  /* set string metatable */
   lua_pop(L, 1);  /* pop dummy string */
+
+  /* set type(string).mt=tbl1{__index=strlib} */
   lua_pushvalue(L, -2);  /* string library... */
   lua_setfield(L, -2, "__index");  /* ...is the __index metamethod */
+  
   lua_pop(L, 1);  /* pop metatable */
 }
 

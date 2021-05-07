@@ -129,7 +129,7 @@ LUALIB_API const char *(luaL_findtable) (lua_State *L, int idx,
 
 
 typedef struct luaL_Buffer {
-  char *p;			/* current position in buffer */
+  char *p;	/* current position in buffer */
   int lvl;  /* number of strings in the stack (level) */
   lua_State *L;
   char buffer[LUAL_BUFFERSIZE];

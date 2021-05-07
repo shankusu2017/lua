@@ -255,9 +255,10 @@ static int io_lines (lua_State *L) {
   if (lua_isnoneornil(L, 1)) {  /* no arguments? */
     /* will iterate over default input */
     lua_rawgeti(L, LUA_ENVIRONINDEX, IO_INPUT);
-    return f_lines(L);
+    return f_lines(L);	/* 返回 CClosure(func:io_readline, upvalues{input.fd, false}) */
   }
   else {
+  	/* 返回 CClosure(func:io_readline, upvalues{arg.fd, true}) */
     const char *filename = luaL_checkstring(L, 1);
     FILE **pf = newfile(L);
     *pf = fopen(filename, "r");
@@ -303,6 +304,7 @@ static int read_line (lua_State *L, FILE *f) {
   for (;;) {
     size_t l;
     char *p = luaL_prepbuffer(&b);
+    /* fgets 计划读取一行 */
     if (fgets(p, LUAL_BUFFERSIZE, f) == NULL) {  /* eof? */
       luaL_pushresult(&b);  /* close buffer */
       return (lua_objlen(L, -1) > 0);  /* check whether read something */
@@ -341,7 +343,7 @@ static int g_read (lua_State *L, FILE *f, int first) {
   int nargs = lua_gettop(L) - 1;
   int success;
   int n;
-  clearerr(f);
+  clearerr(f);	/* 清除文件结束标志和错误标志 */
   if (nargs == 0) {  /* no arguments? */
     success = read_line(L, f);
     n = first+1;  /* to return 1 result */
@@ -518,21 +520,36 @@ static void createmeta (lua_State *L) {
   lua_pushvalue(L, -1);  /* push metatable */
   lua_setfield(L, -2, "__index");  /* metatable.__index = metatable */
   luaL_register(L, NULL, flib);  /* file methods */
+  /* 运行完毕，栈上多了一个mt */
 }
 
 
 static void createstdfile (lua_State *L, FILE *f, int k, const char *fname) {
   *newfile(L) = f;
+  
+  int n = lua_gettop(L);
   if (k > 0) {
     lua_pushvalue(L, -1);
+	n = lua_gettop(L);
     lua_rawseti(L, LUA_ENVIRONINDEX, k);
+	n = lua_gettop(L);
   }
+  n = lua_gettop(L);
   lua_pushvalue(L, -2);  /* copy environment */
+  n = lua_gettop(L);
   lua_setfenv(L, -2);  /* set it */
+  n = lua_gettop(L);
   lua_setfield(L, -3, fname);
+  n = lua_gettop(L);
+  n = lua_gettop(L);
 }
 
+/* top-1 = {}, top++ 
+** top-1 = closure, top++
+** tbl.__close = closure, top--
 
+** 结束后,栈上多了一个tbl.__close=closure{f=cls}
+*/
 static void newfenv (lua_State *L, lua_CFunction cls) {
   lua_createtable(L, 0, 1);
   lua_pushcfunction(L, cls);
@@ -541,15 +558,31 @@ static void newfenv (lua_State *L, lua_CFunction cls) {
 
 
 LUALIB_API int luaopen_io (lua_State *L) {
+  // a
   createmeta(L);
-  /* create (private) environment (with fields IO_INPUT, IO_OUTPUT, __close) */
+  int n = lua_gettop(L);
+  
+  /* create (private) environment (with fields IO_INPUT, IO_OUTPUT, __close) 
+  **
+  ** 替换当前callInfo中的环境变量（gbl.tbl->newfenv函数构造出来的tbl）
+  */
+  // b
   newfenv(L, io_fclose);
+  n = lua_gettop(L);
+
+  // c
   lua_replace(L, LUA_ENVIRONINDEX);
-  /* open library */
+  n = lua_gettop(L);
+  /* d open library */
   luaL_register(L, LUA_IOLIBNAME, iolib);
-  /* create (and set) default files */
+  n = lua_gettop(L);
+  /* e create (and set) default files */
   newfenv(L, io_noclose);  /* close function for default files */
+  n = lua_gettop(L);
+  /* f */
   createstdfile(L, stdin, IO_INPUT, "stdin");
+  
+  n = lua_gettop(L);
   createstdfile(L, stdout, IO_OUTPUT, "stdout");
   createstdfile(L, stderr, 0, "stderr");
   lua_pop(L, 1);  /* pop environment for default files */

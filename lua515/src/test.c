@@ -56,6 +56,10 @@ int main(int argc, char *argv[]) {
     sum = lua_tointeger(vm, -1);
     lua_settop(vm, 0);   // 扔掉返回值
 
+    {
+        lua_newthread(vm);
+    }
+
    int ret = 0;
    printf("load lua.script\n");
    ret = loadFile(vm, "../script/opcode.lua");
