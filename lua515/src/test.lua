@@ -2,6 +2,7 @@ local modname = ...
 local M = {}
 _G[modname] = M
 package.loaded[modname] = M
+setmetatable(M, {__index=_G})
 setfenv(1, M)
 --local print = print
 
@@ -24,6 +25,8 @@ function f4()
     f3()
 end
 
-f2()
-print("$$$$$$$$$$$$$$$:")
+require("test_b")
+
+--f2()
+--print("$$$$$$$$$$$$$$$:")
 --print("###################:", t_gbl)

@@ -121,7 +121,7 @@ struct lua_State {
   int hookcount;
   lua_Hook hook;	/*  调试用的hook函数句柄, 参考 debug.sethook           */
   
-  TValue l_gt;  /* table of globals */
+  TValue l_gt;  /* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承 */
   TValue env;  /* temporary place for environments */
   GCObject *openupval;  /* list of open upvalues in this stack */
   GCObject *gclist;

@@ -499,7 +499,7 @@ static void f_parser (lua_State *L, void *ud) {
   luaC_checkGC(L);
   tf = ((c == LUA_SIGNATURE[0]) ? luaU_undump : luaY_parser)(L, p->z,
                                                              &p->buff, p->name);
-  cl = luaF_newLclosure(L, tf->nups, hvalue(gt(L)));
+  cl = luaF_newLclosure(L, tf->nups, hvalue(gt(L)));	/* 新生成的clouse的env直接来自gobal'table而不是上层函数的env */
   cl->l.p = tf;
   for (i = 0; i < tf->nups; i++)  /* initialize eventual upvalues */
     cl->l.upvals[i] = luaF_newupval(L);
