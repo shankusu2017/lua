@@ -93,7 +93,7 @@ static int luaB_error (lua_State *L) {
 
 static int luaB_getmetatable (lua_State *L) {
   luaL_checkany(L, 1);
-  if (!lua_getmetatable(L, 1)) {
+  if (!lua_getmetatable(L, 1)) {	/* 尝试查找元表，有则压入栈 */
     lua_pushnil(L);
     return 1;  /* no metatable */
   }

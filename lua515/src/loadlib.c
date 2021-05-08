@@ -267,13 +267,13 @@ static void **ll_register (lua_State *L, const char *path) {
     plib = (void **)lua_touserdata(L, -1);
   else {  /* no entry yet; create one */
     lua_pop(L, 1);
-    plib = (void **)lua_newuserdata(L, sizeof(const void *));
+    plib = (void **)lua_newuserdata(L, sizeof(const void *));	/* create ud */
     *plib = NULL;
     luaL_getmetatable(L, "_LOADLIB");
-    lua_setmetatable(L, -2);
+    lua_setmetatable(L, -2);									/* ud.mt = reg._LOADLIB */
     lua_pushfstring(L, "%s%s", LIBPREFIX, path);
     lua_pushvalue(L, -2);
-    lua_settable(L, LUA_REGISTRYINDEX);
+    lua_settable(L, LUA_REGISTRYINDEX);							/* reg.path = ud */
   }
   return plib;
 }
@@ -292,12 +292,15 @@ static int gctm (lua_State *L) {
 
 
 static int ll_loadfunc (lua_State *L, const char *path, const char *sym) {
+  /* 打开或返回path对应的句柄 */
   void **reg = ll_register(L, path);
-  if (*reg == NULL) *reg = ll_load(L, path);
+  if (*reg == NULL) 
+  	*reg = ll_load(L, path);
+  /* 尝试获取句柄中特定的符号值sym */
   if (*reg == NULL)
     return ERRLIB;  /* unable to load library */
   else {
-    lua_CFunction f = ll_sym(L, *reg, sym);
+    lua_CFunction f = ll_sym(L, *reg, sym);	
     if (f == NULL)
       return ERRFUNC;  /* unable to find function */
     lua_pushcfunction(L, f);
@@ -305,7 +308,7 @@ static int ll_loadfunc (lua_State *L, const char *path, const char *sym) {
   }
 }
 
-
+/* package.loadlib (libname, funcname) */
 static int ll_loadlib (lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   const char *init = luaL_checkstring(L, 2);
@@ -528,10 +531,13 @@ static void dooptions (lua_State *L, int n) {
 
 static void modinit (lua_State *L, const char *modname) {
   const char *dot;
+  
   lua_pushvalue(L, -1);
   lua_setfield(L, -2, "_M");  /* module._M = module */
+  
   lua_pushstring(L, modname);
   lua_setfield(L, -2, "_NAME");
+  
   dot = strrchr(modname, '.');  /* look for last dot in module name */
   if (dot == NULL) dot = modname;
   else dot++;
@@ -543,13 +549,15 @@ static void modinit (lua_State *L, const char *modname) {
 
 static int ll_module (lua_State *L) {
   const char *modname = luaL_checkstring(L, 1);
+  
   int loaded = lua_gettop(L) + 1;  /* index of _LOADED table */
   lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
   lua_getfield(L, loaded, modname);  /* get _LOADED[modname] */
+  
   if (!lua_istable(L, -1)) {  /* not found? */
     lua_pop(L, 1);  /* remove previous result */
     /* try global variable (and create one if it does not exist) */
-    if (luaL_findtable(L, LUA_GLOBALSINDEX, modname, 1) != NULL)
+    if (luaL_findtable(L, LUA_GLOBALSINDEX, modname, 1) != NULL)	/* 不能和已有的全局变量冲突 */
       return luaL_error(L, "name conflict for module " LUA_QS, modname);
     lua_pushvalue(L, -1);
     lua_setfield(L, loaded, modname);  /* _LOADED[modname] = new table */

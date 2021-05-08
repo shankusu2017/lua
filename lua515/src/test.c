@@ -70,7 +70,9 @@ int main(int argc, char *argv[]) {
    printf("execute lua.script\n");
    ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
    if (0 != ret) {
-       printf("call fail, ret(%d)", ret);
+       char  errmsg [1024];
+       size_t errLen;
+       printf("call fail, ret(%d). err(%s)", ret, luaL_optlstring(vm, -1, "nil", &errLen));
        return -2;
    }
 

@@ -534,7 +534,9 @@ LUA_API int lua_pushthread (lua_State *L) {
 ** get functions (Lua -> stack)
 */
 
-/* 获取由idx指定的table中的key=L->top的值，将其放到L->top上 */
+/* 获取由idx指定的table中的key=L->top-1的值，将其放到L->top-1上
+ * top-1 = idx[top-1]
+*/
 LUA_API void lua_gettable (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -645,7 +647,7 @@ LUA_API void lua_getfenv (lua_State *L, int idx) {
 ** set functions (stack -> Lua)
 */
 
-/* 给指定的table设置key=val       idx[top-2] = top-1 */
+/* 给指定的table设置key=val       idx[top-2] = top-1, top-=2 */
 LUA_API void lua_settable (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -734,7 +736,7 @@ LUA_API int lua_setmetatable (lua_State *L, int objindex) {
   return 1;
 }
 
-/* idx.env = top-1 */
+/* idx.env = top-1, top-- */
 LUA_API int lua_setfenv (lua_State *L, int idx) {
   StkId o;
   int res = 1;

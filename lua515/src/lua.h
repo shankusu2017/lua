@@ -34,8 +34,15 @@
 /*
 ** pseudo-indices
 */
-// 注册表：供所有的C函数使用，住宿C语言自己要有机制避免key冲突
+/* 注册表：供所有的C函数使用，住宿C语言自己要有机制避免key冲突
+** C各个模块使用，比如io,package...
+** _LOADED.libname 子表用于存放lua原生的辅助库的加载数据(reg._LOADED.libname=gbl.libname)
+** (LOADLIB: libpath) 子域用于存放玩家代码中加载的第三方库的加载数据
+** _LOADLIB 子域名，用于存放package库的公用元表
+** "FILE* 子域名，用于存放io库的公用元表
+*/
 #define LUA_REGISTRYINDEX	(-10000)
+
 // 正在运行的C/Lua函数的环境Closure.env域
 #define LUA_ENVIRONINDEX	(-10001)
 // Lua全局变量
