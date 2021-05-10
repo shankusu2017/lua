@@ -27,27 +27,28 @@
 /* mark for precompiled code (`<esc>Lua') */
 #define	LUA_SIGNATURE	"\033Lua"
 
-/* option for multiple returns in `lua_pcall' and `lua_call' */
+/* option for multiple returns in `lua_pcall' and `lua_call' 
+*/
 #define LUA_MULTRET	(-1)
 
 
 /*
-** pseudo-indices
+** pseudo-indices（伪索引）
 */
-/* 注册表：供所有的C函数使用，住宿C语言自己要有机制避免key冲突
-** C各个模块使用，比如io,package...
+/* 注册表：供C各个模块使用，比如(io,package)，C自己要有机制避免key冲突(用不同的前缀作为uuid-key)
+** 表由globalState->l_registry域指针引用
 ** _LOADED.libname 子表用于存放lua原生的辅助库的加载数据(reg._LOADED.libname=gbl.libname)
 ** (LOADLIB: libpath) 子域用于存放玩家代码中加载的第三方库的加载数据
 ** _LOADLIB 子域名，用于存放package库的公用元表
-** "FILE* 子域名，用于存放io库的公用元表
+** "FILE*" 子域名，用于存放io库的公用元表
 */
 #define LUA_REGISTRYINDEX	(-10000)
 
-// 正在运行的C/Lua函数的环境Closure.env域
+// 指代正在运行的C/Lua函数的环境Closure.env域
 #define LUA_ENVIRONINDEX	(-10001)
-// Lua全局变量
+// Lua全局变量，由globalstate->l_gt引用
 #define LUA_GLOBALSINDEX	(-10002)
-// C函数关联的upvalues
+// Closure关联的upvalues
 #define lua_upvalueindex(i)	(LUA_GLOBALSINDEX-(i))
 
 /* thread status; 0 is OK */
@@ -59,7 +60,7 @@
 
 
 typedef struct lua_State lua_State;
-// 能被Lua虚拟机执行的C函数的原型
+// 能被Lua虚拟机执行的C函数的原型约定
 typedef int (*lua_CFunction) (lua_State *L);
 
 
@@ -73,6 +74,8 @@ typedef int (*lua_Writer) (lua_State *L, const void* p, size_t sz, void* ud);
 
 /*
 ** prototype for memory-allocation functions
+** nsize==0 能释放内存
+** nsize!=0 能压缩或扩大内存
 */
 typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 
@@ -84,7 +87,7 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 
 #define LUA_TNIL		0
 #define LUA_TBOOLEAN		1
-#define LUA_TLIGHTUSERDATA	2
+#define LUA_TLIGHTUSERDATA	2	/* lua不管理其声明周期(gc) */
 #define LUA_TNUMBER		3
 #define LUA_TSTRING		4
 #define LUA_TTABLE		5
@@ -106,7 +109,9 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 #endif
 
 
-/* type of numbers in Lua */
+/* type of numbers in Lua 
+** double 能准确的表示int(10^14内)，lua内部只用一个number类型来处理C中的int/double
+*/
 typedef LUA_NUMBER lua_Number;
 
 
@@ -148,7 +153,7 @@ LUA_API int             (lua_isstring) (lua_State *L, int idx);
 LUA_API int             (lua_iscfunction) (lua_State *L, int idx);
 LUA_API int             (lua_isuserdata) (lua_State *L, int idx);
 LUA_API int             (lua_type) (lua_State *L, int idx);
-LUA_API const char     *(lua_typename) (lua_State *L, int tp);
+LUA_API const char     *(lua_typename) (lua_State *L, int tp);	/* 返回const ^_^ */
 
 LUA_API int            (lua_equal) (lua_State *L, int idx1, int idx2);
 LUA_API int            (lua_rawequal) (lua_State *L, int idx1, int idx2);
@@ -184,6 +189,7 @@ LUA_API int   (lua_pushthread) (lua_State *L);
 
 /*
 ** get functions (Lua -> stack)
+** 这里lua主要指系统辅助库?
 */
 LUA_API void  (lua_gettable) (lua_State *L, int idx);
 LUA_API void  (lua_getfield) (lua_State *L, int idx, const char *k);
@@ -265,7 +271,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 #define lua_pop(L,n)		lua_settop(L, -(n)-1)
 
 #define lua_newtable(L)		lua_createtable(L, 0, 0)
-
+/* 注册全局的name的function */
 #define lua_register(L,n,f) (lua_pushcfunction(L, (f)), lua_setglobal(L, (n)))
 
 #define lua_pushcfunction(L,f)	lua_pushcclosure(L, (f), 0)
@@ -335,7 +341,7 @@ LUA_API void lua_setlevel	(lua_State *from, lua_State *to);
 #define LUA_MASKLINE	(1 << LUA_HOOKLINE)
 #define LUA_MASKCOUNT	(1 << LUA_HOOKCOUNT)
 
-typedef struct lua_Debug lua_Debug;  /* activation record */
+typedef struct lua_Debug lua_Debug;  /* activation(这个是重点) record */
 
 
 /* Functions to be called by the debuger in specific events */
