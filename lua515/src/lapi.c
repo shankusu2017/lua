@@ -37,47 +37,49 @@ const char lua_ident[] =
   "$URL: www.lua.org $\n";
 
 
-/* 当前栈内否存在N个元素 
+/* 当前栈内是否至少有N个元素 
 ** 用途：核查函数调用中实际传入的参数个数是否不小于声明的n个(eg:声明传入函数指针和N个参数，准备调用函数，结果一查既然没有那么多参数！！)
  */
 #define api_checknelems(L, n)	api_check(L, (n) <= (L->top - L->base))
-
+/* index是否合法 */
 #define api_checkvalidindex(L, i)	api_check(L, (i) != luaO_nilobject)
-/* 先检查top指针时候还能增长，若能则++,否则报错 */
+/* 先检查top指针是否还能增长，若能则++,否则报错 */
 #define api_incr_top(L)   {api_check(L, L->top < L->ci->top); L->top++;}
 
 
-/* RETURNS: luaO_nilobject idx无意义 */
+/* RETURNS: luaO_nilobject （表示：idx无意义） */
 static TValue *index2adr (lua_State *L, int idx) {
   if (idx > 0) {
     TValue *o = L->base + (idx - 1);
-    api_check(L, idx <= L->ci->top - L->base);	/* 核查idx是否在当前ci的安全范围内? */
+    api_check(L, idx <= L->ci->top - L->base);	/* 核查idx是否在当前ci的安全范围内 */
     if (o >= L->top) return cast(TValue *, luaO_nilobject);	/* 无意义的值 */
     else return o;
   }
-  else if (idx > LUA_REGISTRYINDEX) {
+  else if (idx > LUA_REGISTRYINDEX) {	// [-1, -n] n的绝对值不能大于栈内元素个数,这里也可以反推出单次call的栈内参数不能大于abs(LUA_REGISTRYINDEX),否则负索引会出问题
     api_check(L, idx != 0 && -idx <= L->top - L->base);	/* idx=0是个非法值!!, 必须是个有意义的值 */
     return L->top + idx;
   }
   else switch (idx) {  /* pseudo-indices */
-    case LUA_REGISTRYINDEX: return registry(L);
-    case LUA_ENVIRONINDEX: {
+    case LUA_REGISTRYINDEX: return registry(L);	/* 全局的注册表 */
+    case LUA_ENVIRONINDEX: {	/* 当前函数的env域 */
       Closure *func = curr_func(L);
       sethvalue(L, &L->env, func->c.env);	/* 这里就有意思了 */
       return &L->env;
     }
-    case LUA_GLOBALSINDEX: return gt(L);
+    case LUA_GLOBALSINDEX: return gt(L);	/* 全局的全局表！！！！ */
     default: {	/* 尝试提取ci->fun的upvalues */
       Closure *func = curr_func(L);
       idx = LUA_GLOBALSINDEX - idx;
       return (idx <= func->c.nupvalues)
                 ? &func->c.upvalue[idx-1]
-                : cast(TValue *, luaO_nilobject);
+                : cast(TValue *, luaO_nilobject);	/* 到最后这里也判断了范围，而不是直接就返回，突显了代码的严谨性 */
     }
   }
 }
 
-
+/* 这里不得不考虑L->ci==L->base_ci 这种情况，因为对C的调用不能做任何前提假设
+** Lua代码中的getcurrenv至少有一层callinfo，但C就不能保证了！！！
+*/
 static Table *getcurrenv (lua_State *L) {
   if (L->ci == L->base_ci)  /* no enclosing function?，哈哈：栈的初始状态了， */
     return hvalue(gt(L));  /* use global table as environment */
@@ -87,20 +89,20 @@ static Table *getcurrenv (lua_State *L) {
   }
 }
 
-
+/* push改为copy更直观易懂？ */
 void luaA_pushobject (lua_State *L, const TValue *o) {
   setobj2s(L, L->top, o);
   api_incr_top(L);
 }
 
-
+/* 若栈的剩余空间小于size则尝试拓展栈空间 */
 LUA_API int lua_checkstack (lua_State *L, int size) {
   int res = 1;
   lua_lock(L);
   if (size > LUAI_MAXCSTACK || (L->top - L->base + size) > LUAI_MAXCSTACK)
     res = 0;  /* stack overflow */
   else if (size > 0) {
-    luaD_checkstack(L, size);
+    luaD_checkstack(L, size);	/* 若栈的剩余空间不足size则尝试扩展栈空间 */
     if (L->ci->top < L->top + size)	// 更新ci信息
       L->ci->top = L->top + size;	// size过大，L->top+size可能越过了ci-top,上面调整了内存，有了上面的内存调整保证，这里也调整下ci->top */
   }
@@ -113,8 +115,8 @@ LUA_API void lua_xmove (lua_State *from, lua_State *to, int n) {
   int i;
   if (from == to) return;
   lua_lock(to);
-  api_checknelems(from, n);	// 是否有这么多元素
-  api_check(from, G(from) == G(to));	// 不是同一个vm下，则报错
+  api_checknelems(from, n);	// from栈内是否有不少于n个元素
+  api_check(from, G(from) == G(to));	// 不是同一个vm下，则报错(线程安全的前提)
   api_check(from, to->ci->top - to->top >= n);	// 目的地是否有足够的空闲slot
   from->top -= n;
   for (i = 0; i < n; i++) {
@@ -123,12 +125,12 @@ LUA_API void lua_xmove (lua_State *from, lua_State *to, int n) {
   lua_unlock(to);
 }
 
-
+/* TODOLOOK */
 LUA_API void lua_setlevel (lua_State *from, lua_State *to) {
   to->nCcalls = from->nCcalls;
 }
 
-// 设置panic，返回old
+// 设置新的panic，返回old
 LUA_API lua_CFunction lua_atpanic (lua_State *L, lua_CFunction panicf) {
   lua_CFunction old;
   lua_lock(L);
@@ -147,7 +149,7 @@ LUA_API lua_State *lua_newthread (lua_State *L) {
   setthvalue(L, L->top, L1);
   api_incr_top(L);
   lua_unlock(L);
-  luai_userstatethread(L, L1);
+  luai_userstatethread(L, L1);	/* 定制化功能：运行用户指定的函数(若存在) */
   return L1;
 }
 
@@ -162,46 +164,49 @@ LUA_API int lua_gettop (lua_State *L) {
   return cast_int(L->top - L->base);
 }
 
-/* idx:正数，表示将栈中元素个数扩充到N,负数：L->top+=idx+1 */
+/* idx:正数，表示将栈中元素个数扩充(也可能是压缩)到N,负数：L->top+=idx+1 */
 LUA_API void lua_settop (lua_State *L, int idx) {
   lua_lock(L);
   if (idx >= 0) {
     api_check(L, idx <= L->stack_last - L->base);
-    while (L->top < L->base + idx)
-      setnilvalue(L->top++);
+    while (L->top < L->base + idx)	/* 扩展栈 */
+      setnilvalue(L->top++);	    /* 多出来的空间填NIL */
     L->top = L->base + idx;
   }
   else {
-    api_check(L, -(idx+1) <= (L->top - L->base));
+    api_check(L, -(idx+1) <= (L->top - L->base));	/* 范围校正 */
     L->top += idx+1;  /* `subtract' index (index is negative) */
   }
   lua_unlock(L);
 }
 
-/* 删除idx指定的栈的slot，slot上面的slot整理往下移一格 */
+/* 删除idx指定的栈的slot，slot上面的slot整理往下移一格,top-- */
 LUA_API void lua_remove (lua_State *L, int idx) {
   StkId p;
   lua_lock(L);
   p = index2adr(L, idx);
-  api_checkvalidindex(L, p);
-  while (++p < L->top) setobjs2s(L, p-1, p);
+  api_checkvalidindex(L, p);	/* 这里的判断条件应该再苛刻些，不过C调用者自己应该对自己负责！*/
+  /* 将idx上面的slot一个一个往下移动一层 */
+  while (++p < L->top) 
+  	setobjs2s(L, p-1, p);
   L->top--;
   lua_unlock(L);
 }
 
-/* 将栈顶元素top抽出来，插入到idx指定的slot，并将idx及其上面的元素整理上移一格 */
+/* 将栈顶元素top-1抽出来，插入到idx指定的slot，并将idx及其上面的元素整理上移一格 */
 LUA_API void lua_insert (lua_State *L, int idx) {
   StkId p;
   StkId q;
   lua_lock(L);
   p = index2adr(L, idx);
-  api_checkvalidindex(L, p);
+  api_checkvalidindex(L, p);	/* 同上 */
+  /* 画图有助于理解 */
   for (q = L->top; q>p; q--) setobjs2s(L, q, q-1);
   setobjs2s(L, p, L->top);
   lua_unlock(L);
 }
 
-/* idx[env] = top, top--,原来slot的值被抛弃 */
+/* idx = top-1, top--,原来slot的值被抛弃 */
 LUA_API void lua_replace (lua_State *L, int idx) {
   StkId o;
   lua_lock(L);
@@ -213,7 +218,7 @@ LUA_API void lua_replace (lua_State *L, int idx) {
   api_checkvalidindex(L, o);
   if (idx == LUA_ENVIRONINDEX) {	/* 修改func的环境变量，最好结合index2addr来看 */
     Closure *func = curr_func(L);
-    api_check(L, ttistable(L->top - 1)); 
+    api_check(L, ttistable(L->top - 1)); 	/* 这里必须进行类型坚持 */
     func->c.env = hvalue(L->top - 1);
     luaC_barrier(L, func, L->top - 1);
   }

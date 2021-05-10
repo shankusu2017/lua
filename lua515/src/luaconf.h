@@ -442,8 +442,8 @@
 @* can use.
 ** CHANGE it if you need lots of (Lua) stack space for your C
 ** functions. This limit is arbitrary; its only purpose is to stop C
-** functions to consume unlimited stack space. (must be smaller than
-** -LUA_REGISTRYINDEX)
+** functions to consume unlimited stack space. 
+** (must be smaller than -LUA_REGISTRYINDEX index2addr这个函数可以推导出这个限制条件)
 */
 #define LUAI_MAXCSTACK	8000
 

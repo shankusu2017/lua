@@ -134,11 +134,12 @@ LUA_API lua_CFunction (lua_atpanic) (lua_State *L, lua_CFunction panicf);
 ** basic stack manipulation
 */
 LUA_API int   (lua_gettop) (lua_State *L);
-LUA_API void  (lua_settop) (lua_State *L, int idx);
+LUA_API void  (lua_settop) (lua_State *L, int idx);	/* 移动top指针，达到扩大或缩小栈元素的作用 */
 LUA_API void  (lua_pushvalue) (lua_State *L, int idx);
 LUA_API void  (lua_remove) (lua_State *L, int idx);
 LUA_API void  (lua_insert) (lua_State *L, int idx);
-LUA_API void  (lua_replace) (lua_State *L, int idx);
+LUA_API void  (lua_replace) (lua_State *L, int idx);	/* idx=top-1, top-- */
+/* */
 LUA_API int   (lua_checkstack) (lua_State *L, int sz);
 
 LUA_API void  (lua_xmove) (lua_State *from, lua_State *to, int n);
