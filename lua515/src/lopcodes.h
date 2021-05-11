@@ -189,8 +189,15 @@ OP_LE,/*	A B C	if ((RK(B) <= RK(C)) ~= A) then pc++  		*/
 OP_TEST,/*	A C	if not (R(A) <=> C) then pc++			*/ 
 OP_TESTSET,/*	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++	*/ 
 
+/* 
+** B=1表示没有传入参数,2:传入一个参数,0:传入了不定参数 
+** C=1:期待没有返回值，2：期待一个返回值，0：期待不定数量返回值
+*/
 OP_CALL,/*	A B C	R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
+
 OP_TAILCALL,/*	A B C	return R(A)(R(A+1), ... ,R(A+B-1))		*/
+
+/* B=1：无返回值，2：一个返回值，0：不定数量返回值 */
 OP_RETURN,/*	A B	return R(A), ... ,R(A+B-2)	(see note)	*/
 
 OP_FORLOOP,/*	A sBx	R(A)+=R(A+2);
