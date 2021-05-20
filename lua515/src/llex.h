@@ -51,7 +51,7 @@ typedef struct Token {
   SemInfo seminfo;
 } Token;
 
-
+/* 整个编译逻辑的状态机而不单单是lex */
 typedef struct LexState {
   int current;  /* current character (charint) */
   int linenumber;  /* input line counter */

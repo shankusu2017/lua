@@ -186,6 +186,7 @@ OP_EQ,/*	A B C	if ((RK(B) == RK(C)) ~= A) then pc++		*/
 OP_LT,/*	A B C	if ((RK(B) <  RK(C)) ~= A) then pc++  		*/
 OP_LE,/*	A B C	if ((RK(B) <= RK(C)) ~= A) then pc++  		*/
 
+/* !!!! <=>:用bool值做相等性比较，而不是判断不相等 */
 OP_TEST,/*	A C	if not (R(A) <=> C) then pc++			*/ 
 OP_TESTSET,/*	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++	*/ 
 

@@ -75,7 +75,9 @@ typedef struct lua_TValue {
 } TValue;
 
 
-/* Macros to test type */
+/* Macros to test type 
+* o:是TValue而不是Object类型
+*/
 #define ttisnil(o)	(ttype(o) == LUA_TNIL)
 #define ttisnumber(o)	(ttype(o) == LUA_TNUMBER)
 #define ttisstring(o)	(ttype(o) == LUA_TSTRING)
@@ -86,7 +88,9 @@ typedef struct lua_TValue {
 #define ttisthread(o)	(ttype(o) == LUA_TTHREAD)
 #define ttislightuserdata(o)	(ttype(o) == LUA_TLIGHTUSERDATA)
 
-/* Macros to access values */
+/* Macros to access values 
+** 根据checkconsistency函数猜测，这里的o传入的是TValues类型，而不是Object
+*/
 #define ttype(o)	((o)->tt)
 #define gcvalue(o)	check_exp(iscollectable(o), (o)->value.gc)
 #define pvalue(o)	check_exp(ttislightuserdata(o), (o)->value.p)
@@ -108,7 +112,10 @@ typedef struct lua_TValue {
 /* 检测类型的一致性 value.type和gc.tt要一致 */
 #define checkconsistency(obj) \
   lua_assert(!iscollectable(obj) || (ttype(obj) == (obj)->value.gc->gch.tt))
-/* 若为gc类型则检测类型一致性 value.type要和gc.tt一致，且obj可达 */
+/* 
+** 若为gc类型则检测类型一致性 value.type要和gc.tt一致，且obj可达
+** obj必须可达：obj=src,src显然必须是可达的，否则无法引用到src,src可达，赋值后obj也是可达的
+*/
 #define checkliveness(g,obj) \
   lua_assert(!iscollectable(obj) || \
   ((ttype(obj) == (obj)->value.gc->gch.tt) && !isdead(g, (obj)->value.gc)))
@@ -203,7 +210,7 @@ typedef union TString {
     CommonHeader;
     lu_byte reserved;	/* 是否为保留字(eg:语言关键字) ？ */
     unsigned int hash;
-    size_t len;
+    size_t len;	/* 不包含lua额外申请的放在数组最后面的\0 */
   } tsv;
 } TString;
 
@@ -328,7 +335,7 @@ typedef union TKey {
     TValuefields;	/* 这里不能简单的用TValue替代，因为TValue已经是最顶层的Value表现形式了。不能再和XXX混合形成更高层次的Value */
     struct Node *next;  /* for chaining */
   } nk;
-  TValue tvk;
+  TValue tvk;	/* tvk域起到了上面nk.val的作用 */
 } TKey;
 
 

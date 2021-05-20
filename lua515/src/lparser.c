@@ -36,6 +36,7 @@
 
 /*
 ** nodes for block list (list of active blocks)
+** previous:往前跳(eg:查找变量时从now-block往前一级一级的block找)
 */
 typedef struct BlockCnt {
   struct BlockCnt *previous;  /* chain */
@@ -220,11 +221,11 @@ static void markupval (FuncState *fs, int level) {
   if (bl) bl->upval = 1;
 }
 
-
+/* 查找变量名对应的表达式类型 */
 static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
   if (fs == NULL) {  /* no more levels? */
     init_exp(var, VGLOBAL, NO_REG);  /* default is global variable */
-    return VGLOBAL;
+    return VGLOBAL;	/* 往外一层一层都找不到时，则认为它是全局变量 */
   }
   else {
     int v = searchvar(fs, n);  /* look up at current level */
@@ -235,8 +236,9 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
       return VLOCAL;
     }
     else {  /* not found at current level; try upper one */
-      if (singlevaraux(fs->prev, n, var, 0) == VGLOBAL)
+      if (singlevaraux(fs->prev, n, var, 0) == VGLOBAL)	/* 都没找到，则是全局变量 */
         return VGLOBAL;
+	  /* 父func中找到，在自己的fun中算upval */
       var->u.s.info = indexupvalue(fs, n, var);  /* else was LOCAL or UPVAL */
       var->k = VUPVAL;  /* upvalue in this level */
       return VUPVAL;
@@ -824,6 +826,7 @@ static const struct {
 /*
 ** subexpr -> (simpleexp | unop subexpr) { binop subexpr }
 ** where `binop' is any binary operator with a priority higher than `limit'
+** 操作符表达式
 */
 static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
   BinOpr op;
@@ -1220,7 +1223,7 @@ static void funcstat (LexState *ls, int line) {
   luaK_fixline(ls->fs, line);  /* definition `happens' in the first line */
 }
 
-
+/* 处理表达式stat */
 static void exprstat (LexState *ls) {
   /* stat -> func | assignment */
   FuncState *fs = ls->fs;

@@ -34,11 +34,11 @@ struct lua_longjmp;  /* defined in ldo.c */
 #define BASIC_STACK_SIZE        (2*LUA_MINSTACK)
 
 
-
+/* 闭散列，哈希桶算法          (https://blog.csdn.net/Boring_Wednesday/article/details/80316884) */
 typedef struct stringtable {
   GCObject **hash;
-  lu_int32 nuse;  /* number of elements */
-  int size;
+  lu_int32 nuse;  /* number of elements 表中元素个数 */
+  int size;	/* 哈希桶的高度 */
 } stringtable;
 
 
@@ -48,7 +48,7 @@ typedef struct stringtable {
 */
 typedef struct CallInfo {
   StkId top;	/* top for this function,无论Lua/C:本次调用可用栈的栈顶阈值，不可超过它,Lua字节码在编码时已计算出maxstacksize故而能保证，这里更多用于C调用(刚开始给出LUA_MINSTACK)的保护 */
-  StkId base;  /* base for this function：本次函数调用中,存放第一个参数的slot,top-base=已压入的调用参数个数 */
+  StkId base;  /* base for this function：本次函数调用中,存放第一个参数的slot,top-base=已压入的调用参数个数,被调用的函数由fun指针指向 */
   StkId func;  /* function index in the stack,本次函数调用的fun在frame中的位置 */
   const Instruction *savedpc;	/* next code,本次调用被打断时存档,调用恢复时拿出来用？eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
   int nresults;  /* expected number of results from this function */
@@ -64,7 +64,7 @@ typedef struct CallInfo {
 
 
 /*
-** `global state', shared by all threads of this state
+** `global state', shared by all threads of this state(被本state所属的threads共享,言外之意，还可以有第N+1个state,其是一个完全独立的lua'state(包含独享的global_state和其独享的threads))
 */
 typedef struct global_State {
   stringtable strt;  /* hash table for strings */
@@ -79,7 +79,7 @@ typedef struct global_State {
   GCObject *grayagain;  /* list of objects to be traversed atomically */
   GCObject *weak;  /* list of weak tables (to be cleared)，propagate阶段处理的weak-table被放入此链表(gc过程中weak-attribute还可能发生变化的)，等待最后atomic处理， */
   GCObject *tmudata;  /* last element of list of userdata to be GC */
-  Mbuffer buff;  /* temporary buffer for string concatentation */
+  Mbuffer buff;  /* temporary buffer for string concatentation(级联) */
   lu_mem GCthreshold;
   lu_mem totalbytes;  /* number of bytes currently allocated */
   lu_mem estimate;  /* an estimate(估计) of number of bytes actually in use */
@@ -121,7 +121,7 @@ struct lua_State {
   int hookcount;
   lua_Hook hook;	/*  调试用的hook函数句柄, 参考 debug.sethook           */
   
-  TValue l_gt;  /* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承 */
+  TValue l_gt;  /* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承环境变量 */
   TValue env;  /* temporary place for environments */
   GCObject *openupval;  /* list of open upvalues in this stack */
   GCObject *gclist;

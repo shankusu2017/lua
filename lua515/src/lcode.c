@@ -246,7 +246,7 @@ static int addk (FuncState *fs, TValue *k, TValue *v) {
   }
 }
 
-
+/* 返回字符串常量在常量表中的idx */
 int luaK_stringK (FuncState *fs, TString *s) {
   TValue o;
   setsvalue(fs->L, &o, s);
@@ -300,7 +300,7 @@ void luaK_setoneret (FuncState *fs, expdesc *e) {
   }
 }
 
-
+/* 为变量表达式生成估值计算的指令? */
 void luaK_dischargevars (FuncState *fs, expdesc *e) {
   switch (e->k) {
     case VLOCAL: {
@@ -339,7 +339,7 @@ static int code_label (FuncState *fs, int A, int b, int jump) {
   return luaK_codeABC(fs, OP_LOADBOOL, A, b, jump);
 }
 
-
+/* discharge:释放 */
 static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
   luaK_dischargevars(fs, e);
   switch (e->k) {
@@ -669,7 +669,7 @@ static void codearith (FuncState *fs, OpCode op, expdesc *e1, expdesc *e2) {
   }
 }
 
-
+/* 关系表达式 */
 static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
                                                           expdesc *e2) {
   int o1 = luaK_exp2RK(fs, e1);

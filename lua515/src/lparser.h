@@ -35,10 +35,10 @@ typedef enum {
 } expkind;
 
 typedef struct expdesc {
-  expkind k;
+  expkind k;	/* 表达式类型 */
   union {
-    struct { int info, aux; } s;
-    lua_Number nval;
+    struct { int info, aux; } s;	/* 随着k不同,info,aux表示的意义随之变化 */
+    lua_Number nval;	/* 数值表达式的数值？ */
   } u;
   int t;  /* patch list of `exit when true' */
   int f;  /* patch list of `exit when false' */
@@ -58,7 +58,7 @@ struct BlockCnt;  /* defined in lparser.c */
 typedef struct FuncState {
   Proto *f;  /* current function header */
   Table *h;  /* table to find (and reuse) elements in `k' */
-  struct FuncState *prev;  /* enclosing function */
+  struct FuncState *prev;  /* enclosing function,先编译完子函数，才能编译父函数 */
   struct LexState *ls;  /* lexical state */
   struct lua_State *L;  /* copy of the Lua state */
   struct BlockCnt *bl;  /* chain of current blocks */

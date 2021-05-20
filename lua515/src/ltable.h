@@ -17,7 +17,7 @@
 
 #define key2tval(n)	(&(n)->i_key.tvk)
 
-
+/* 带着函数的返回值类型，看函数实现，哈哈 */
 LUAI_FUNC const TValue *luaH_getnum (Table *t, int key);
 LUAI_FUNC TValue *luaH_setnum (lua_State *L, Table *t, int key);
 LUAI_FUNC const TValue *luaH_getstr (Table *t, TString *key);
