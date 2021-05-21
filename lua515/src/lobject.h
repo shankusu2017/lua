@@ -76,7 +76,7 @@ typedef struct lua_TValue {
 
 
 /* Macros to test type 
-* o:是TValue而不是Object类型
+* o:是TValue而不是Object类型,这里不是采用CommonHead中的tt来判断类型
 */
 #define ttisnil(o)	(ttype(o) == LUA_TNIL)
 #define ttisnumber(o)	(ttype(o) == LUA_TNUMBER)
@@ -90,6 +90,8 @@ typedef struct lua_TValue {
 
 /* Macros to access values 
 ** 根据checkconsistency函数猜测，这里的o传入的是TValues类型，而不是Object
+**
+** !!!!注意这里返回的类型，非gc类型直接返回数值，gc类型，返回的是对象的地址(指针)
 */
 #define ttype(o)	((o)->tt)
 #define gcvalue(o)	check_exp(iscollectable(o), (o)->value.gc)
@@ -113,8 +115,8 @@ typedef struct lua_TValue {
 #define checkconsistency(obj) \
   lua_assert(!iscollectable(obj) || (ttype(obj) == (obj)->value.gc->gch.tt))
 /* 
-** 若为gc类型则检测类型一致性 value.type要和gc.tt一致，且obj可达
-** obj必须可达：obj=src,src显然必须是可达的，否则无法引用到src,src可达，赋值后obj也是可达的
+** 若为gc类型则检测类型一致性 value.type要和gc.tt一致，且obj(src)可达
+** 用在obj=src语句之后,若引用了一个dead的src，这就是逻辑错误了，所以必须坚持src的可达性
 */
 #define checkliveness(g,obj) \
   lua_assert(!iscollectable(obj) || \
@@ -209,7 +211,7 @@ typedef union TString {
   struct {
     CommonHeader;
     lu_byte reserved;	/* 是否为保留字(eg:语言关键字) ？ */
-    unsigned int hash;
+    unsigned int hash;  /* hash值 */
     size_t len;	/* 不包含lua额外申请的放在数组最后面的\0 */
   } tsv;
 } TString;
@@ -239,7 +241,7 @@ typedef union Udata {
 typedef struct Proto {
   CommonHeader;
   TValue *k;  /* constants used by the function */
-  Instruction *code;
+  Instruction *code;	/* 指向存放指令数组的指针 */
   struct Proto **p;  /* functions defined inside the function */
   int *lineinfo;  /* map from opcodes to source lines,   lineinfo[code.idx]->code.fileLine */
   struct LocVar *locvars;  /* information about local variables */
@@ -257,7 +259,7 @@ typedef struct Proto {
   lu_byte nups;  /* number of upvalues */
   lu_byte numparams;	/* 若函数为定长参数，则表示：形参个数？ */
   lu_byte is_vararg;	/* 不定长(数量)参数？ */
-  lu_byte maxstacksize;
+  lu_byte maxstacksize;	/* 编译过程中计算出来的需用到的local'var的数量的最大值 */
 } Proto;
 
 
@@ -294,7 +296,7 @@ typedef struct UpVal {
 
 /*
 ** Closures
-** env：环境变量的指针
+** env：环境变量(全局环境？）的指针
 ** isC: 1：C函数， 0：Lua函数
 */
 
@@ -335,7 +337,7 @@ typedef union TKey {
     TValuefields;	/* 这里不能简单的用TValue替代，因为TValue已经是最顶层的Value表现形式了。不能再和XXX混合形成更高层次的Value */
     struct Node *next;  /* for chaining */
   } nk;
-  TValue tvk;	/* tvk域起到了上面nk.val的作用 */
+  TValue tvk;	/* tvk域起到了上面nk.val的作用,方便某些情况下的代码编写，算是理想和现实的折中吧 */
 } TKey;
 
 

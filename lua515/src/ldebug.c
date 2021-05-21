@@ -32,8 +32,9 @@
 
 static const char *getfuncname (lua_State *L, CallInfo *ci, const char **name);
 
-
+/* 计算存档的savedpc在code数组中的索引 */
 static int currentpc (lua_State *L, CallInfo *ci) {
+  /* 这个判断必须要有 */
   if (!isLua(ci)) return -1;  /* function is not a Lua function? */
   if (ci == L->ci)
     ci->savedpc = L->savedpc;
@@ -80,7 +81,9 @@ LUA_API int lua_gethookcount (lua_State *L) {
   return L->basehookcount;
 }
 
-/* 按照传入的level尝试确定ar->i_ci（want的调用层值）的值 */
+/* 按照传入的level尝试确定ar->i_ci（want的调用层值）的值 
+** level:本层调用，1：往前退一层，2：往前退2层，N：退n层
+*/
 LUA_API int lua_getstack (lua_State *L, int level, lua_Debug *ar) {
   int status;
   CallInfo *ci;
@@ -90,16 +93,17 @@ LUA_API int lua_getstack (lua_State *L, int level, lua_Debug *ar) {
     level--;
     if (f_isLua(ci))  /* Lua function? */
       level -= ci->tailcalls;  /* skip lost tail calls */
-  }/* 传入level=0或者level>0,回滚后可以确定到指定的level'call */
+  }
+  /* 传入level=0或者level>0,回滚后可以确定到指定的level'call */
   if (level == 0 && ci > L->base_ci) {  /* level found? */
     status = 1;
     ar->i_ci = cast_int(ci - L->base_ci);
-  }
-  else if (level < 0) {  /* level is of a lost tail call? */
+  } else if (level < 0) {  /* level is of a lost tail call? */
     status = 1;
     ar->i_ci = 0;
+  } else {
+  	status = 0;  /* no such level */
   }
-  else status = 0;  /* no such level */
   lua_unlock(L);
   return status;
 }
@@ -297,7 +301,7 @@ int luaG_checkopenop (Instruction i) {
     case OP_TAILCALL:
     case OP_RETURN:
     case OP_SETLIST: {
-      check(GETARG_B(i) == 0);
+      check(GETARG_B(i) == 0);	/* 这几种指令中ARG.B==0表示参数个数不确定 */
       return 1;
     }
     default: return 0;  /* invalid instruction after an open call */
@@ -596,7 +600,7 @@ void luaG_aritherror (lua_State *L, const TValue *p1, const TValue *p2) {
   luaG_typeerror(L, p2, "perform arithmetic on");
 }
 
-
+/* 比较运算符语义错误 */
 int luaG_ordererror (lua_State *L, const TValue *p1, const TValue *p2) {
   const char *t1 = luaT_typenames[ttype(p1)];
   const char *t2 = luaT_typenames[ttype(p2)];

@@ -67,7 +67,10 @@ enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 #define MAXARG_C        ((1<<SIZE_C)-1)
 
 
-/* creates a mask with `n' 1 bits at position `p' */
+/* creates a mask with `n' 1 bits at position `p' 
+** n = 3, p = 5 -> 00000000000000000000000011100000
+** n：位数，p:位置
+*/
 #define MASK1(n,p)	((~((~(Instruction)0)<<n))<<p)
 
 /* creates a mask with `n' 0 bits at position `p' */
@@ -80,7 +83,7 @@ enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 #define GET_OPCODE(i)	(cast(OpCode, ((i)>>POS_OP) & MASK1(SIZE_OP,0)))
 #define SET_OPCODE(i,o)	((i) = (((i)&MASK0(SIZE_OP,POS_OP)) | \
 		((cast(Instruction, o)<<POS_OP)&MASK1(SIZE_OP,POS_OP))))
-
+/* 去arg.A域的值 */
 #define GETARG_A(i)	(cast(int, ((i)>>POS_A) & MASK1(SIZE_A,0)))
 #define SETARG_A(i,u)	((i) = (((i)&MASK0(SIZE_A,POS_A)) | \
 		((cast(Instruction, u)<<POS_A)&MASK1(SIZE_A,POS_A))))

@@ -117,8 +117,8 @@ struct lua_State {
   
   lu_byte hookmask;
   lu_byte allowhook;
-  int basehookcount;	/* 参考debug.sethook */
-  int hookcount;
+  int basehookcount;	/* 参考debug.sethook,虚拟机执行N个pc后调用指定的钩子函数 */
+  int hookcount;		/* 当前还需要执行N个pc才能触发上面提到的钩子函数 */
   lua_Hook hook;	/*  调试用的hook函数句柄, 参考 debug.sethook           */
   
   TValue l_gt;  /* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承环境变量 */

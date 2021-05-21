@@ -31,7 +31,7 @@
 /* limit for table tag-method chains (to avoid loops) */
 #define MAXTAGLOOP	100
 
-
+/* number,string-->number */
 const TValue *luaV_tonumber (const TValue *obj, TValue *n) {
   lua_Number num;
   if (ttisnumber(obj)) return obj;
@@ -43,7 +43,7 @@ const TValue *luaV_tonumber (const TValue *obj, TValue *n) {
     return NULL;
 }
 
-
+/* number->string */
 int luaV_tostring (lua_State *L, StkId obj) {
   if (!ttisnumber(obj))
     return 0;
@@ -56,16 +56,16 @@ int luaV_tostring (lua_State *L, StkId obj) {
   }
 }
 
-
+/* 判断调试MASK是否设置，以及相关条件是否已满足，满足则进入钩子函数 */
 static void traceexec (lua_State *L, const Instruction *pc) {
   lu_byte mask = L->hookmask;
   const Instruction *oldpc = L->savedpc;
   L->savedpc = pc;
-  if ((mask & LUA_MASKCOUNT) && L->hookcount == 0) {
+  if ((mask & LUA_MASKCOUNT) && L->hookcount == 0) {	/* 执行了指定数量的pc，调用指定的钩子函数 */
     resethookcount(L);
     luaD_callhook(L, LUA_HOOKCOUNT, -1);
   }
-  if (mask & LUA_MASKLINE) {
+  if (mask & LUA_MASKLINE) {	/* LUA_MASKLINE不是说执行到了某一行，具体的意思看下面的代码 */
     Proto *p = ci_func(L->ci)->l.p;
     int npc = pcRel(pc, p);
     int newline = getline(p, npc);
@@ -76,7 +76,7 @@ static void traceexec (lua_State *L, const Instruction *pc) {
   }
 }
 
-
+/* 调用元方法，将结果返回给res */
 static void callTMres (lua_State *L, StkId res, const TValue *f,
                         const TValue *p1, const TValue *p2) {
   ptrdiff_t result = savestack(L, res);
@@ -161,7 +161,7 @@ void luaV_settable (lua_State *L, const TValue *t, TValue *key, StkId val) {
   luaG_runerror(L, "loop in settable");
 }
 
-
+/* 同上callTM，针对tblA+tblB这种两个操作数的，尝试调用特定元方法 */
 static int call_binTM (lua_State *L, const TValue *p1, const TValue *p2,
                        StkId res, TMS event) {
   const TValue *tm = luaT_gettmbyobj(L, p1, event);  /* try first operand */
@@ -172,7 +172,7 @@ static int call_binTM (lua_State *L, const TValue *p1, const TValue *p2,
   return 1;
 }
 
-
+/* only for userdata */
 static const TValue *get_compTM (lua_State *L, Table *mt1, Table *mt2,
                                   TMS event) {
   const TValue *tm1 = fasttm(L, mt1, event);
@@ -186,7 +186,7 @@ static const TValue *get_compTM (lua_State *L, Table *mt1, Table *mt2,
   return NULL;
 }
 
-
+/* 元方法：比较操作 */
 static int call_orderTM (lua_State *L, const TValue *p1, const TValue *p2,
                          TMS event) {
   const TValue *tm1 = luaT_gettmbyobj(L, p1, event);
@@ -206,7 +206,7 @@ static int l_strcmp (const TString *ls, const TString *rs) {
   const char *r = getstr(rs);
   size_t lr = rs->tsv.len;
   for (;;) {
-    int temp = strcoll(l, r);
+    int temp = strcoll(l, r);	/* 依环境变量 LC_COLLATE 所指定的文字排列次序来比较 s1 和 s2 字符串 */
     if (temp != 0) return temp;
     else {  /* strings are equal up to a `\0' */
       size_t len = strlen(l);  /* index of first `\0' in both strings */
@@ -221,7 +221,7 @@ static int l_strcmp (const TString *ls, const TString *rs) {
   }
 }
 
-
+/* 比较指令 */
 int luaV_lessthan (lua_State *L, const TValue *l, const TValue *r) {
   int res;
   if (ttype(l) != ttype(r))
@@ -278,7 +278,7 @@ int luaV_equalval (lua_State *L, const TValue *t1, const TValue *t2) {
   return !l_isfalse(L->top);
 }
 
-
+/* 从last开始，一共链接total个slot          */
 void luaV_concat (lua_State *L, int total, int last) {
   do {
     StkId top = L->base + last + 1;
@@ -344,6 +344,7 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
 
 #define runtime_check(L, c)	{ if (!(c)) break; }
 
+/* 提取指令中A,B,C的值 */
 #define RA(i)	(base+GETARG_A(i))
 /* to be used after possible stack reallocation */
 #define RB(i)	check_exp(getBMode(GET_OPCODE(i)) == OpArgR, base+GETARG_B(i))
@@ -360,7 +361,7 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
 
 #define Protect(x)	{ L->savedpc = pc; {x;}; base = L->base; }
 
-
+/* 这个宏有意思哈 */ 
 #define arith_op(op,tm) { \
         TValue *rb = RKB(i); \
         TValue *rc = RKC(i); \
@@ -384,11 +385,12 @@ void luaV_execute (lua_State *L, int nexeccalls) {
   pc = L->savedpc;
   cl = &clvalue(L->ci->func)->l;
   base = L->base;
-  k = cl->p->k;
+  k = cl->p->k;	/* locvars 仅在编译阶段/调试库中有效，虚拟机运行阶段无效(已编码到pc中) */
   /* main loop of interpreter */
   for (;;) {
-    const Instruction i = *pc++;
+    const Instruction i = *pc++;	/* 等效：*(pc++) */
     StkId ra;
+   /* 运行钩子逻辑 */
     if ((L->hookmask & (LUA_MASKLINE | LUA_MASKCOUNT)) &&
         (--L->hookcount == 0 || L->hookmask & LUA_MASKLINE)) {
       traceexec(L, pc);
@@ -398,7 +400,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       }
       base = L->base;
     }
-    /* warning!! several calls may realloc the stack and invalidate `ra' */
+    /* warning!! several(某些) calls may realloc the stack and invalidate `ra' */
     ra = RA(i);
     lua_assert(base == L->base && L->base == L->ci->base);
     lua_assert(base <= L->top && L->top <= L->stack + L->stacksize);
@@ -433,7 +435,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         TValue g;
         TValue *rb = KBx(i);
         sethvalue(L, &g, cl->env);
-        lua_assert(ttisstring(rb));
+        lua_assert(ttisstring(rb));	/* 全局变量名类型必须是TString */
         Protect(luaV_gettable(L, &g, rb, ra));
         continue;
       }
@@ -466,9 +468,9 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         continue;
       }
       case OP_SELF: {
-        StkId rb = RB(i);
-        setobjs2s(L, ra+1, rb);
-        Protect(luaV_gettable(L, rb, RKC(i), ra));
+        StkId rb = RB(i);	/* 拿到self.sub中的self指代的表 */
+        setobjs2s(L, ra+1, rb);	/* 将上述表self存起来 */
+        Protect(luaV_gettable(L, rb, RKC(i), ra)); /* 计算self.sub的值 */
         continue;
       }
       case OP_ADD: {
@@ -542,7 +544,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         dojump(L, pc, GETARG_sBx(i));
         continue;
       }
-      case OP_EQ: {
+      case OP_EQ: {	/* KEYCODE 重点，难点，代表性的指令 */
         TValue *rb = RKB(i);
         TValue *rc = RKC(i);
         Protect(
