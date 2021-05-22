@@ -544,7 +544,11 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         dojump(L, pc, GETARG_sBx(i));
         continue;
       }
-      case OP_EQ: {	/* KEYCODE 重点，难点，代表性的指令 */
+	  	/* KEYCODE 重点，难点，代表性的指令 
+	  	** if ((RK(B) == RK(C)) ~= A) then pc++
+	  	** OP_EQ后面紧跟着是跳转指令，这里猜测，跳转的值Bx应该短1，因为后面又进行了pc++
+	  	*/
+      case OP_EQ: {
         TValue *rb = RKB(i);
         TValue *rc = RKC(i);
         Protect(
@@ -562,7 +566,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         pc++;
         continue;
       }
-      case OP_LE: {
+      case OP_LE: {	
         Protect(
           if (lessequal(L, RKB(i), RKC(i)) == GETARG_A(i))
             dojump(L, pc, GETARG_sBx(*pc));
@@ -585,11 +589,16 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         pc++;
         continue;
       }
-      case OP_CALL: {
+      case OP_CALL: {	/* R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
         int b = GETARG_B(i);	// 参数个数
         int nresults = GETARG_C(i) - 1;	// 期待的返回值个数
-        if (b != 0) L->top = ra+b;  /* else previous instruction set top */
-        L->savedpc = pc;
+        /* 当传入的参数数量明确时，移动top,
+        ** 不明确时，OP_VARARG指令中已确定了top的位置 
+        ** 故而本block之后，L->top都是指向了最后一个参数的"位置"
+         */
+        if (b != 0) 
+			L->top = ra+b;  /* else previous instruction set top */
+        L->savedpc = pc;	/* 记下原本接下来要执行的下一条指令 */
         switch (luaD_precall(L, ra, nresults)) {
           case PCRLUA: {
             nexeccalls++;
@@ -644,7 +653,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         if (L->openupval) luaF_close(L, base);
         L->savedpc = pc;
         b = luaD_poscall(L, ra);
-        if (--nexeccalls == 0)  /* was previous function running `here'? */
+        if (--nexeccalls == 0)  /* was previous function running `here'? Lua层面的调用结束了 */
           return;  /* no: return */
         else {  /* yes: continue its execution */
           if (b) L->top = L->ci->top;
@@ -746,19 +755,23 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         int b = GETARG_B(i) - 1;
         int j;
         CallInfo *ci = L->ci;
-        int n = cast_int(ci->base - ci->func) - cl->p->numparams - 1;
+        int n = cast_int(ci->base - ci->func) - cl->p->numparams - 1;	/* 本次函数调用传入的不定参数的个数eg: funA(a,b, ...) funA */
         if (b == LUA_MULTRET) {
           Protect(luaD_checkstack(L, n));
           ra = RA(i);  /* previous call may change the stack */
-          b = n;
-          L->top = ra + n;
+          b = n;	/* 出现在 local tbl = {...} 或者 funA(...) 需要拷贝所有的不定参数 */
+          L->top = ra + n; /* 为可能即将到来的C/lua函数调用做准备？(L->top-func可知即将发生的函数调用有多少个传入参数) */
         }
+		/* 将不定参数赋值给指定的对象？？？
+		** local a, b = ...
+		** 不定参数数量不足则补nil
+		*/
         for (j = 0; j < b; j++) {
-          if (j < n) {
+          if (j < n) {	/* 本函数的不定参数的个数还能满足ra+j代表的dst寄存器 */
             setobjs2s(L, ra + j, ci->base - n + j);
           }
           else {
-            setnilvalue(ra + j);
+            setnilvalue(ra + j);	/* local a, b = ... 本函数实际上只收到了一个不定参数，那么不足的部分(b)就要补nil值了 */
           }
         }
         continue;

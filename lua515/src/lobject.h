@@ -257,9 +257,9 @@ typedef struct Proto {
   int lastlinedefined;
   GCObject *gclist;
   lu_byte nups;  /* number of upvalues */
-  lu_byte numparams;	/* 若函数为定长参数，则表示：形参个数？ */
-  lu_byte is_vararg;	/* 不定长(数量)参数？ */
-  lu_byte maxstacksize;	/* 编译过程中计算出来的需用到的local'var的数量的最大值 */
+  lu_byte numparams;	/* 函数原型中定长参数个数 funA(a,b,...)->2, funB(...)->0, funC(a,b)->2              */
+  lu_byte is_vararg;	/* 不定长函数funB(a,...)但凡定义中有...的则是不定长参数，反之则不是 */
+  lu_byte maxstacksize;	/* 编译过程中计算得知：本proto需用到的local'var的数量的最大值 */
 } Proto;
 
 

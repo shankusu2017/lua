@@ -210,7 +210,7 @@ static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   int nfixargs = p->numparams;
   Table *htab = NULL;
   StkId base, fixed;
-  for (; actual < nfixargs; ++actual)
+  for (; actual < nfixargs; ++actual)	/* 传入参数的数量不够填补fixed参数的，直接补nil */
     setnilvalue(L->top++);
 #if defined(LUA_COMPAT_VARARG)
   if (p->is_vararg & VARARG_NEEDSARG) { /* compat. with old-style vararg? */
@@ -228,7 +228,11 @@ static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   /* move fixed parameters to final position */
   fixed = L->top - actual;  /* first fixed argument */
   base = L->top;  /* final position of first argument */
-  for (i=0; i<nfixargs; i++) {
+
+  /* 从第一个参数开始移动其值到被调函数的fixed‘arg域,直到给所有的fixed'arg赋值为止
+  ** 如果还剩下多余的参数，则直接保留下来，无需移动
+  */
+  for (i=0; i<nfixargs; i++) {	
     setobjs2s(L, L->top++, fixed+i);
     setnilvalue(fixed+i);
   }
@@ -264,10 +268,13 @@ static StkId tryfuncTM (lua_State *L, StkId func) {
 /* 先做调用前的准备工作，后进入函数调用(for C,not Lua) */
 int luaD_precall (lua_State *L, StkId func, int nresults) {
   LClosure *cl;
-  ptrdiff_t funcr;
+  ptrdiff_t funcr;	/* 当前调用函数的pc距离stack栈底的偏移量 */
   if (!ttisfunction(func)) /* `func' is not a function? */
     func = tryfuncTM(L, func);  /* check the `function' tag method */
-  funcr = savestack(L, func);
+  /* 随着新的调用产生,ci链可能因为增长而移动位置
+  ** 故不能记住绝地位置而记住相对位置，后面根据此值最终确定ci->func 
+  */
+  funcr = savestack(L, func);	
   cl = &clvalue(func)->l;
   L->ci->savedpc = L->savedpc;
   if (!cl->isC) {  /* Lua function? prepare its call */
@@ -295,7 +302,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     ci->tailcalls = 0;
     ci->nresults = nresults;
     for (st = L->top; st < ci->top; st++)
-      setnilvalue(st);	/* 不足的参数补nil */
+      setnilvalue(st);	/*  */
     L->top = ci->top;
     if (L->hookmask & LUA_MASKCALL) {
       L->savedpc++;  /* hooks assume 'pc' is already incremented */
@@ -308,6 +315,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     CallInfo *ci;
     int n;
     luaD_checkstack(L, LUA_MINSTACK);  /* ensure minimum stack size */
+	/* 填充新的CallInfo */
     ci = inc_ci(L);  /* now `enter' new function */
     ci->func = restorestack(L, funcr);
     L->base = ci->base = ci->func + 1;
@@ -317,6 +325,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     if (L->hookmask & LUA_MASKCALL)
       luaD_callhook(L, LUA_HOOKCALL, -1);
     lua_unlock(L);
+	// L->top已经在lvm中准备好了
     n = (*curr_func(L)->c.f)(L);  /* do the actual call */
     lua_lock(L);
     if (n < 0)  /* yielding? */

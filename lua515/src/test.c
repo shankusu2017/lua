@@ -36,6 +36,21 @@ int t_db(lua_State *L) {
     printf("%d\n", ar.linedefined);
 }
 
+int t_fun_c(lua_State *L) {
+    printf("arg.cnt(%d)", lua_gettop(L));
+}
+
+int t_exe_lua(lua_State *vm) {
+    {
+        lua_getglobal(vm, "g_lua");
+        lua_pushinteger(vm, 1);
+        lua_pushinteger(vm, 2);
+        lua_call(vm, 2, 0);
+
+        return 0;
+    }
+}
+
 int main(int argc, char *argv[]) {
     char buf[80];   
     getcwd(buf,sizeof(buf));   
@@ -47,18 +62,24 @@ int main(int argc, char *argv[]) {
     }
     luaL_openlibs(vm);  /* open libraries */
 
-
-    lua_pushcfunction(vm, t_add);
-    lua_pushinteger(vm, 1);
-    lua_pushinteger(vm, 2);
-    lua_call(vm, 2, 1);
-    lua_Integer sum;
-    sum = lua_tointeger(vm, -1);
-    lua_settop(vm, 0);   // 扔掉返回值
-
     {
-        lua_newthread(vm);
+
+        // lua_pushcfunction(vm, t_fun_c);
+        // lua_setglobal(vm, "fun_c");
     }
+
+
+    // lua_pushcfunction(vm, t_add);
+    // lua_pushinteger(vm, 1);
+    // lua_pushinteger(vm, 2);
+    // lua_call(vm, 2, 1);
+    // lua_Integer sum;
+    // sum = lua_tointeger(vm, -1);
+    // lua_settop(vm, 0);   // 扔掉返回值
+
+    // {
+    //     lua_newthread(vm);
+    // }
 
    int ret = 0;
    printf("load lua.script\n");
@@ -68,6 +89,13 @@ int main(int argc, char *argv[]) {
        return -2;
    }
    printf("execute lua.script\n");
+   {
+        // lua_pushnumber(vm, 1);
+        // lua_pushnumber(vm, 1);
+        // lua_pushnumber(vm, 1);
+        // lua_pushnumber(vm, 1);
+        // ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
+   }
    ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
    if (0 != ret) {
        char  errmsg [1024];
@@ -76,6 +104,8 @@ int main(int argc, char *argv[]) {
        return -2;
    }
 
-    t_db(vm);
+   t_exe_lua(vm);
+
+    //t_db(vm);
 }
 
