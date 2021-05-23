@@ -314,18 +314,19 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
   else {  /* if is a C function, call it */
     CallInfo *ci;
     int n;
+    /* 先处理stack后ci,避免调整stack后又调整ci */
     luaD_checkstack(L, LUA_MINSTACK);  /* ensure minimum stack size */
 	/* 填充新的CallInfo */
     ci = inc_ci(L);  /* now `enter' new function */
     ci->func = restorestack(L, funcr);
-    L->base = ci->base = ci->func + 1;
-    ci->top = L->top + LUA_MINSTACK;
+    L->base = ci->base = ci->func + 1;	/* C函数没有Lua函数的变参问题，所以这里无需adjust_varargs() */
+    ci->top = L->top + LUA_MINSTACK;	/* 这里和上面luaD_checkstack呼应 */
     lua_assert(ci->top <= L->stack_last);
     ci->nresults = nresults;
     if (L->hookmask & LUA_MASKCALL)
       luaD_callhook(L, LUA_HOOKCALL, -1);
     lua_unlock(L);
-	// L->top已经在lvm中准备好了
+	// L->top已经在lvm中准备好了(call和vararg指令)
     n = (*curr_func(L)->c.f)(L);  /* do the actual call */
     lua_lock(L);
     if (n < 0)  /* yielding? */
@@ -348,7 +349,10 @@ static StkId callrethooks (lua_State *L, StkId firstResult) {
   return restorestack(L, fr);
 }
 
-
+/* 函数调用结束后，处理实际返回值和期待返回值的匹配问题
+** 即处理C函数调用结束也处理Lua函数执行结束即将返回这两种情况
+** 没有检测C函数说返回了n个参数，当实际上没有返回那么多参数的情况
+*/
 int luaD_poscall (lua_State *L, StkId firstResult) {
   StkId res;
   int wanted, i;

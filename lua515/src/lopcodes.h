@@ -224,7 +224,7 @@ OP_VARARG/*	A B	R(A), R(A+1), ..., R(A+B-1) = vararg		*/
 
 
 /*===========================================================================
-  Notes:
+  Notes: 这里的注释最好结合lvmz中相关指令代码一起看
   (*) In OP_CALL, if (B == 0) then B = top. C is the number of returns - 1,
       and can be 0: OP_CALL then sets `top' to last_result+1, so
       next open instruction (OP_CALL, OP_RETURN, OP_SETLIST) may use `top'.

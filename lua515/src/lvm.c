@@ -615,13 +615,13 @@ void luaV_execute (lua_State *L, int nexeccalls) {
           }
         } 
       }
-      case OP_TAILCALL: {
+      case OP_TAILCALL: {	/* 其后跟着OP_RETURN，结合两个指令一起看 */
         int b = GETARG_B(i);
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
         L->savedpc = pc;
-        lua_assert(GETARG_C(i) - 1 == LUA_MULTRET);
+        lua_assert(GETARG_C(i) - 1 == LUA_MULTRET);	/* 尾调用的定义中：必须返回其调用返回的所有值，所以这里C必须为0 */
         switch (luaD_precall(L, ra, LUA_MULTRET)) {
-          case PCRLUA: {
+          case PCRLUA: {	/* 这个block{}还没看懂 */
             /* tail call: put new frame in place of previous one */
             CallInfo *ci = L->ci - 1;  /* previous frame */
             int aux;
@@ -649,7 +649,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       }
       case OP_RETURN: {
         int b = GETARG_B(i);
-        if (b != 0) L->top = ra+b-1;
+        if (b != 0) L->top = ra+b-1;	/* 以便确定返回值的确切个数 */
         if (L->openupval) luaF_close(L, base);
         L->savedpc = pc;
         b = luaD_poscall(L, ra);
@@ -658,7 +658,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         else {  /* yes: continue its execution */
           if (b) L->top = L->ci->top;
           lua_assert(isLua(L->ci));
-          lua_assert(GET_OPCODE(*((L->ci)->savedpc - 1)) == OP_CALL);
+          lua_assert(GET_OPCODE(*((L->ci)->savedpc - 1)) == OP_CALL);	/* 上一个指令必然是call */
           goto reentry;
         }
       }
@@ -705,20 +705,21 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         pc++;
         continue;
       }
-      case OP_SETLIST: {
+      case OP_SETLIST: {	/* local t = {...} 本指令之前可能会有一条vararg，所以结合vararg来理解本block的代码 */
+	  	/* A B C	R(A)[(C-1)*FPF+i] := R(A+i), 1 <= i <= B */
         int n = GETARG_B(i);
         int c = GETARG_C(i);
         int last;
         Table *h;
-        if (n == 0) {
-          n = cast_int(L->top - ra) - 1;
+        if (n == 0) {	/* 计算确切的参数个数 */
+          n = cast_int(L->top - ra) - 1;	
           L->top = L->ci->top;
         }
-        if (c == 0) c = cast_int(*pc++);
-        runtime_check(L, ttistable(ra));
+        if (c == 0) c = cast_int(*pc++);	/* 这行代码最好有个印象 */
+        runtime_check(L, ttistable(ra));	/* 编译模块出错了 */
         h = hvalue(ra);
-        last = ((c-1)*LFIELDS_PER_FLUSH) + n;
-        if (last > h->sizearray)  /* needs more space? */
+        last = ((c-1)*LFIELDS_PER_FLUSH) + n;	/* 计算当前能确定的数组下标的最大值 */
+        if (last > h->sizearray)  /* needs more space?  数组区域大小不够，需扩展*/
           luaH_resizearray(L, h, last);  /* pre-alloc it at once */
         for (; n > 0; n--) {
           TValue *val = ra+n;
@@ -728,17 +729,20 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         continue;
       }
       case OP_CLOSE: {
+	  	/* close all variables in the stack up to (>=) R(A) 编译模块如何确定参数A？*/
         luaF_close(L, ra);
         continue;
       }
       case OP_CLOSURE: {
+	  	/* A Bx	R(A) := closure(KPROTO[Bx], R(A), ... ,R(A+n)) */
         Proto *p;
         Closure *ncl;
         int nup, j;
-        p = cl->p->p[GETARG_Bx(i)];
+        p = cl->p->p[GETARG_Bx(i)];	/* 找到对应的proto */
         nup = p->nups;
         ncl = luaF_newLclosure(L, nup, cl->env);
         ncl->l.p = p;
+		/* 下面的block尚未完全看懂 */
         for (j=0; j<nup; j++, pc++) {
           if (GET_OPCODE(*pc) == OP_GETUPVAL)
             ncl->l.upvals[j] = cl->upvals[GETARG_B(*pc)];
@@ -759,8 +763,14 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         if (b == LUA_MULTRET) {
           Protect(luaD_checkstack(L, n));
           ra = RA(i);  /* previous call may change the stack */
-          b = n;	/* 出现在 local tbl = {...} 或者 funA(...) 需要拷贝所有的不定参数 */
-          L->top = ra + n; /* 为可能即将到来的C/lua函数调用做准备？(L->top-func可知即将发生的函数调用有多少个传入参数) */
+          b = n;	/* 出现在 local tbl = {...} 或者 funA(...) 需要拷贝所有的不定参数的地方 */
+
+		  /* 为可能即将到来的C/lua函数调用做准备，(L->top-func可知即将发生的函数调用实际上有多少个传入参数) 
+		  ** 
+		  ** local tbl={...} OP_SETLIST指令也用到了L->top，故而可以推断出，这里L->top标记了实际上...携带的参数个数
+		  ** 以便其它指令能准确的执行(主要是获取..参数个数)，这里将实际传入的参数个数通过L->top计算好，避免其它指令再去计算一遍
+		  */
+          L->top = ra + n; 
         }
 		/* 将不定参数赋值给指定的对象？？？
 		** local a, b = ...
