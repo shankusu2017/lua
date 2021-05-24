@@ -374,7 +374,12 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
       }
 
 
-
+/* 
+** nexeccalls:Lua连续调用的层次
+** eg: c(0)->Lua(1)->Lua(2)->c()->Lua(1)->Lua(2)->Lua(3)->c(0)->Lua(1)
+** 某次Lua调用结束，--nexeccalls，如果nexeccalls==0，表示当前lua调用链结束了，需要跳出luaV_execute函数
+** 大于0表示本Lua调用结束后，上一层必然还是Lua函数，需要进入reentry点
+*/
 void luaV_execute (lua_State *L, int nexeccalls) {
   LClosure *cl;
   StkId base;
@@ -592,12 +597,14 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       case OP_CALL: {	/* R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
         int b = GETARG_B(i);	// 参数个数
         int nresults = GETARG_C(i) - 1;	// 期待的返回值个数
+        
         /* 当传入的参数数量明确时，移动top,
         ** 不明确时，OP_VARARG指令中已确定了top的位置 
-        ** 故而本block之后，L->top都是指向了最后一个参数的"位置"
-         */
+        ** 故而本block之后，L->top都是指向了最后一个参数的"位置",也是告知被调用函数，我已经准备好了你要的参数且top指针已指到相应的位置了
+        */
         if (b != 0) 
-			L->top = ra+b;  /* else previous instruction set top */
+			L->top = ra+b;  /* else previous instruction set top(OP_VARARG指令已经准备好了L->top的位置) */
+		
         L->savedpc = pc;	/* 记下原本接下来要执行的下一条指令 */
         switch (luaD_precall(L, ra, nresults)) {
           case PCRLUA: {
@@ -606,7 +613,11 @@ void luaV_execute (lua_State *L, int nexeccalls) {
           }
           case PCRC: {
             /* it was a C function (`precall' called it); adjust results */
-            if (nresults >= 0) L->top = L->ci->top;
+            if (nresults >= 0)	
+				L->top = L->ci->top;	/* C调用结束，恢复本lua函数原本的top */
+			else {
+				//没有else，否则就是tailcall指令了
+			}
             base = L->base;
             continue;
           }
@@ -649,20 +660,21 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       }
       case OP_RETURN: {
         int b = GETARG_B(i);
-        if (b != 0) L->top = ra+b-1;	/* 以便确定返回值的确切个数 */
+        if (b != 0) 
+			L->top = ra+b-1;	/* 以便确定返回值的确切个数 */
         if (L->openupval) luaF_close(L, base);
         L->savedpc = pc;
         b = luaD_poscall(L, ra);
         if (--nexeccalls == 0)  /* was previous function running `here'? Lua层面的调用结束了 */
           return;  /* no: return */
         else {  /* yes: continue its execution */
-          if (b) L->top = L->ci->top;
-          lua_assert(isLua(L->ci));
+          if (b) L->top = L->ci->top;	/* 不是tailcall的返回，这里更新L->top */
+          lua_assert(isLua(L->ci)); /* 根据nexeccalls来判断 */
           lua_assert(GET_OPCODE(*((L->ci)->savedpc - 1)) == OP_CALL);	/* 上一个指令必然是call */
           goto reentry;
         }
       }
-      case OP_FORLOOP: {
+      case OP_FORLOOP: {	/* 先看 OP_FORPREP 指令 */
         lua_Number step = nvalue(ra+2);
         lua_Number idx = luai_numadd(nvalue(ra), step); /* increment index */
         lua_Number limit = nvalue(ra+1);
@@ -670,7 +682,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
                                 : luai_numle(limit, idx)) {
           dojump(L, pc, GETARG_sBx(i));  /* jump back */
           setnvalue(ra, idx);  /* update internal index... */
-          setnvalue(ra+3, idx);  /* ...and external index */
+          setnvalue(ra+3, idx);  /* ...and external index 这个idx才是暴露给for循环里面的i(for i = 0; 10; 1) */ 
         }
         continue;
       }
@@ -685,11 +697,15 @@ void luaV_execute (lua_State *L, int nexeccalls) {
           luaG_runerror(L, LUA_QL("for") " limit must be a number");
         else if (!tonumber(pstep, ra+2))
           luaG_runerror(L, LUA_QL("for") " step must be a number");
-        setnvalue(ra, luai_numsub(nvalue(ra), nvalue(pstep)));
-        dojump(L, pc, GETARG_sBx(i));
+        setnvalue(ra, luai_numsub(nvalue(ra), nvalue(pstep)));	/* 这里提前-=step */
+        dojump(L, pc, GETARG_sBx(i));	/* 跳到cond判断那里 */
         continue;
       }
       case OP_TFORLOOP: {
+	  	/* 编译模块保证了ra+3是个有意义的参数 
+	  	** next函数会吃掉传入的参数，所以这里CP了一份
+	    */
+	    /* 结合 http://shankusu.me/lua/ANo-FrillsIntroductiontoLua51VMInstructions/ 文档来看，更容易理解 */
         StkId cb = ra + 3;  /* call base */
         setobjs2s(L, cb+2, ra+2);
         setobjs2s(L, cb+1, ra+1);
@@ -711,9 +727,9 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         int c = GETARG_C(i);
         int last;
         Table *h;
-        if (n == 0) {	/* 计算确切的参数个数 */
-          n = cast_int(L->top - ra) - 1;	
-          L->top = L->ci->top;
+        if (n == 0) {	
+          n = cast_int(L->top - ra) - 1;	/* 计算确切的参数个数 */
+          L->top = L->ci->top;	/* OP_VARARG指令L->top已经指向了{...}不定参数的最后一个slot的位置以便求n,这里将其复原 */
         }
         if (c == 0) c = cast_int(*pc++);	/* 这行代码最好有个印象 */
         runtime_check(L, ttistable(ra));	/* 编译模块出错了 */
@@ -756,6 +772,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         continue;
       }
       case OP_VARARG: {
+	  	/* A B	R(A), R(A+1), ..., R(A+B-1) = vararg */
         int b = GETARG_B(i) - 1;
         int j;
         CallInfo *ci = L->ci;
@@ -769,6 +786,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
 		  ** 
 		  ** local tbl={...} OP_SETLIST指令也用到了L->top，故而可以推断出，这里L->top标记了实际上...携带的参数个数
 		  ** 以便其它指令能准确的执行(主要是获取..参数个数)，这里将实际传入的参数个数通过L->top计算好，避免其它指令再去计算一遍
+		  ** 其它指令用完L->top后需将其复原
 		  */
           L->top = ra + n; 
         }

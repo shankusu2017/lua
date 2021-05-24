@@ -259,7 +259,12 @@ typedef struct Proto {
   lu_byte nups;  /* number of upvalues */
   lu_byte numparams;	/* 函数原型中定长参数个数 funA(a,b,...)->2, funB(...)->0, funC(a,b)->2              */
   lu_byte is_vararg;	/* 不定长函数funB(a,...)但凡定义中有...的则是不定长参数，反之则不是 */
-  lu_byte maxstacksize;	/* 编译过程中计算得知：本proto需用到的local'var的数量的最大值 */
+  
+  /* 编译过程计算得到：本proto需用到的local'var的数量的最大值
+  ** (从第一个型参开始计算(不包含不定参数...因为哪个没法知道确切的数量) 
+  ** 实际调用时传给不定参数...的实参在L->base---->L->func之间,数量在OP_VARARG指令中已给出计算公式
+  */
+  lu_byte maxstacksize;	
 } Proto;
 
 

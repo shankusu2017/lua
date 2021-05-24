@@ -80,11 +80,19 @@ local function l_fun(...)
 	l_fun2(...)
 end
 
-
+function g_lua2(a, ...)
+	-- l_fun(...)
+	print("i' g_lua2 ")
+	-- print("call c'fun")
+	-- t_fun_c()
+	return
+end
 
 function g_lua(a, ...)
 	-- l_fun(...)
 	print("i' g_lua ")
+	print("call c'fun")
+	t_fun_c()
 end
 
 print("opcode exe done")

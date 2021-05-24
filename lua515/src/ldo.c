@@ -285,7 +285,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     func = restorestack(L, funcr);
     if (!p->is_vararg) {  /* no varargs?(不是变参函数?即函数参数数量固定) */
       base = func + 1;
-      if (L->top > base + p->numparams)	/* 删除栈上多余的传入参数 */
+      if (L->top > base + p->numparams)	/* 删除栈上多余的传入参数,(下面补nil) */
         L->top = base + p->numparams;
     }
     else {  /* vararg function */
@@ -296,13 +296,14 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     ci = inc_ci(L);  /* now `enter' new function */
     ci->func = func;
     L->base = ci->base = base;
+	/* 这里可以推导出L->base---->L->top之间的区域都是ci的私有栈空间(lua,c均如此) */
     ci->top = L->base + p->maxstacksize;
     lua_assert(ci->top <= L->stack_last);
     L->savedpc = p->code;  /* starting point */
     ci->tailcalls = 0;
     ci->nresults = nresults;
     for (st = L->top; st < ci->top; st++)
-      setnilvalue(st);	/*  */
+      setnilvalue(st);	/* 新的函数的私有栈空间直接补nil(参数的区域除外) */
     L->top = ci->top;
     if (L->hookmask & LUA_MASKCALL) {
       L->savedpc++;  /* hooks assume 'pc' is already incremented */
@@ -350,7 +351,7 @@ static StkId callrethooks (lua_State *L, StkId firstResult) {
 }
 
 /* 函数调用结束后，处理实际返回值和期待返回值的匹配问题
-** 即处理C函数调用结束也处理Lua函数执行结束即将返回这两种情况
+** 即处理C函数调用,也处理Lua函数执行结束即将返回这两种情况
 ** 没有检测C函数说返回了n个参数，当实际上没有返回那么多参数的情况
 */
 int luaD_poscall (lua_State *L, StkId firstResult) {
@@ -371,7 +372,7 @@ int luaD_poscall (lua_State *L, StkId firstResult) {
   while (i-- > 0)
     setnilvalue(res++);	/* local a, b, c = funcA(...), 针对 funcA的返回值不够则补nil */
   
-  L->top = res;	/* C调用这句好理解,Lua调用可能在其它地方做了调整 */
+  L->top = res;	/* C调用这句好理解,Lua调用可能在其它地方做了调整(RETURN那里调整了) */
   return (wanted - LUA_MULTRET);  /* 0 iff wanted == LUA_MULTRET */
 }
 

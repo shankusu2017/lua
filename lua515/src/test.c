@@ -36,8 +36,12 @@ int t_db(lua_State *L) {
     printf("%d\n", ar.linedefined);
 }
 
-int t_fun_c(lua_State *L) {
-    printf("arg.cnt(%d)", lua_gettop(L));
+int t_fun_c(lua_State *vm) {
+    printf("arg.cnt(%d)", lua_gettop(vm));
+    lua_getglobal(vm, "g_lua2");
+    lua_pushinteger(vm, 1);
+    lua_pushinteger(vm, 2);
+    lua_call(vm, 2, 0);
 }
 
 int t_exe_lua(lua_State *vm) {
@@ -62,10 +66,10 @@ int main(int argc, char *argv[]) {
     }
     luaL_openlibs(vm);  /* open libraries */
 
-    {
+    {   // register C'fun
 
-        // lua_pushcfunction(vm, t_fun_c);
-        // lua_setglobal(vm, "fun_c");
+        lua_pushcfunction(vm, t_fun_c);
+        lua_setglobal(vm, "t_fun_c");
     }
 
 
