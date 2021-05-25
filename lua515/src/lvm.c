@@ -375,7 +375,9 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
 
 
 /* 
+** KEYCODE
 ** nexeccalls:Lua连续调用的层次
+**
 ** eg: c(0)->Lua(1)->Lua(2)->c()->Lua(1)->Lua(2)->Lua(3)->c(0)->Lua(1)
 ** 某次Lua调用结束，--nexeccalls，如果nexeccalls==0，表示当前lua调用链结束了，需要跳出luaV_execute函数
 ** 大于0表示本Lua调用结束后，上一层必然还是Lua函数，需要进入reentry点
@@ -387,10 +389,15 @@ void luaV_execute (lua_State *L, int nexeccalls) {
   const Instruction *pc;
  reentry:  /* entry point */
   lua_assert(isLua(L->ci));
+
+  /* KEYCODE vm执行的关键参数:base,top,pc,savedpc, closure,k, L->ci,
+  ** 后续因为call和return等切换调用栈时，必须正确处理上述参数
+  */
   pc = L->savedpc;
   cl = &clvalue(L->ci->func)->l;
   base = L->base;
   k = cl->p->k;	/* locvars 仅在编译阶段/调试库中有效，虚拟机运行阶段无效(已编码到pc中) */
+  
   /* main loop of interpreter */
   for (;;) {
     const Instruction i = *pc++;	/* 等效：*(pc++) */
@@ -409,7 +416,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
     ra = RA(i);
     lua_assert(base == L->base && L->base == L->ci->base);
     lua_assert(base <= L->top && L->top <= L->stack + L->stacksize);
-    lua_assert(L->top == L->ci->top || luaG_checkopenop(i));
+    lua_assert(L->top == L->ci->top || luaG_checkopenop(i));	/* luaG_checkopenop()蛮有意思的，需要彻底读懂(配合相关的指令逻辑一起看),看不懂则等看完相关指令后再看 */
     switch (GET_OPCODE(i)) {
       case OP_MOVE: {
         setobjs2s(L, ra, RB(i));
@@ -596,7 +603,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       }
       case OP_CALL: {	/* R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
         int b = GETARG_B(i);	// 参数个数
-        int nresults = GETARG_C(i) - 1;	// 期待的返回值个数
+        int nresults = GETARG_C(i) - 1;	// 期待的返回值个数 C:0(...), 1:(期待返回0个)，2:(期待返回1个)
         
         /* 当传入的参数数量明确时，移动top,
         ** 不明确时，OP_VARARG指令中已确定了top的位置 
@@ -616,7 +623,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
             if (nresults >= 0)	
 				L->top = L->ci->top;	/* C调用结束，恢复本lua函数原本的top */
 			else {
-				//没有else，否则就是tailcall指令了
+				//没有else，否则就是tailcall指令了?（tailcall后面的return给收尾了或者是setlist指令(local tbl = {fun()})
 			}
             base = L->base;
             continue;
@@ -626,7 +633,8 @@ void luaV_execute (lua_State *L, int nexeccalls) {
           }
         } 
       }
-      case OP_TAILCALL: {	/* 其后跟着OP_RETURN，结合两个指令一起看 */
+      case OP_TAILCALL: {	/* 其后跟着OP_RETURN，结合两个指令一起看(for c'fun call) */
+	  	/* A B C return R(A)(R(A+1), ... ,R(A+B-1)) */
         int b = GETARG_B(i);
         if (b != 0) L->top = ra+b;  /* else previous instruction set top */
         L->savedpc = pc;
@@ -650,7 +658,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
             goto reentry;
           }
           case PCRC: {  /* it was a C function (`precall' called it) */
-            base = L->base;
+            base = L->base;	/* restore base */
             continue;
           }
           default: {
@@ -659,6 +667,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         }
       }
       case OP_RETURN: {
+	  	/* return R(A), ... ,R(A+B-2) */
         int b = GETARG_B(i);
         if (b != 0) 
 			L->top = ra+b-1;	/* 以便确定返回值的确切个数 */
@@ -670,7 +679,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         else {  /* yes: continue its execution */
           if (b) L->top = L->ci->top;	/* 不是tailcall的返回，这里更新L->top */
           lua_assert(isLua(L->ci)); /* 根据nexeccalls来判断 */
-          lua_assert(GET_OPCODE(*((L->ci)->savedpc - 1)) == OP_CALL);	/* 上一个指令必然是call */
+          lua_assert(GET_OPCODE(*((L->ci)->savedpc - 1)) == OP_CALL);	/* 上一个指令必然是call? */
           goto reentry;
         }
       }

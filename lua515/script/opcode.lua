@@ -88,11 +88,28 @@ function g_lua2(a, ...)
 	return
 end
 
-function g_lua(a, ...)
-	-- l_fun(...)
-	print("i' g_lua ")
-	print("call c'fun")
-	t_fun_c()
+
+
+
+local function e1()
+	local a = "a"
+	local b = 1
+	local c = a + b
+end
+local function e2()
+	e1()
 end
 
-print("opcode exe done")
+local function e3()
+	e2()
+end
+
+function g_lua()
+	-- l_fun(...)
+	-- print("i' g_lua ")
+	-- print("call c'fun")
+	-- t_fun_c()
+	e3()
+end
+
+-- print("opcode exe done")

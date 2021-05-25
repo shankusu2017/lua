@@ -257,7 +257,7 @@ typedef struct Proto {
   int lastlinedefined;
   GCObject *gclist;
   lu_byte nups;  /* number of upvalues */
-  lu_byte numparams;	/* 函数原型中定长参数个数 funA(a,b,...)->2, funB(...)->0, funC(a,b)->2              */
+  lu_byte numparams;	/* 函数原型中定长参数个数 funA(a,b,...)->2, funB(...)->0, funC(a)->1            */
   lu_byte is_vararg;	/* 不定长函数funB(a,...)但凡定义中有...的则是不定长参数，反之则不是 */
   
   /* 编译过程计算得到：本proto需用到的local'var的数量的最大值

@@ -66,7 +66,7 @@ typedef struct CallInfo {
   StkId base;  
   StkId func;  /* function index in the stack,本次函数调用的fun在frame中的位置 */
   const Instruction *savedpc;	/* next code,本次调用被打断时存档,调用恢复时拿出来用？eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
-  int nresults;  /* expected number of results from this function */
+  int nresults;  /* expected number of results from this function -1:要全部返回值, 0:不要返回值，1：要一个返回值 */
   int tailcalls;  /* number of tail calls lost under this entry */
 } CallInfo;
 
@@ -121,11 +121,16 @@ struct lua_State {
   global_State *l_G;
   CallInfo *ci;  /* call info for current function */
   const Instruction *savedpc;  /* `savedpc' of current function */
+
+  /* stacksize =(stack_last - stack) + (1 + EXTRA_STACK) 
+   ** stack_last到真实的stack->mem.top之间还有一层缓冲区
+  */
   StkId stack_last;  /* last free slot in the stack */
   StkId stack;  /* stack base */
-  CallInfo *end_ci;  /* points after end of ci array*/
-  CallInfo *base_ci;  /* array of CallInfo's */
   int stacksize;
+
+  CallInfo *base_ci;  /* array of CallInfo's */
+  CallInfo *end_ci;  /* points after end of ci array*/
   int size_ci;  /* size of array `base_ci' */
   unsigned short nCcalls;  /* number of nested C calls */
   unsigned short baseCcalls;  /* nested C calls when resuming coroutine */

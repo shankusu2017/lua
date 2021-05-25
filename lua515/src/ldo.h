@@ -21,9 +21,11 @@
 
 #define incr_top(L) {luaD_checkstack(L,1); L->top++;}
 
+/* 存档和恢复"栈"指针 */
 #define savestack(L,p)		((char *)(p) - (char *)L->stack)
 #define restorestack(L,n)	((TValue *)((char *)L->stack + (n)))
 
+/* 存档和恢复指向ci链的指针 */
 #define saveci(L,p)		((char *)(p) - (char *)L->base_ci)
 #define restoreci(L,n)		((CallInfo *)((char *)L->base_ci + (n)))
 

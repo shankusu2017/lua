@@ -301,7 +301,7 @@ int luaG_checkopenop (Instruction i) {
     case OP_TAILCALL:
     case OP_RETURN:
     case OP_SETLIST: {
-      check(GETARG_B(i) == 0);	/* 这几种指令中ARG.B==0表示参数个数不确定 */
+      check(GETARG_B(i) == 0);	/* 这几种指令中ARG.B==0表示参数个数不确定，此时要用到L->top参数来辅助确定实际的参数个数 */
       return 1;
     }
     default: return 0;  /* invalid instruction after an open call */

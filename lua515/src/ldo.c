@@ -64,10 +64,10 @@ void luaD_seterrorobj (lua_State *L, int errcode, StkId oldtop) {
       break;
     }
   }
-  L->top = oldtop + 1;
+  L->top = oldtop + 1;	/* correct top */
 }
 
-
+/* 空闲的callInfo过多时，尝试搜索下其空间 */
 static void restore_stack_limit (lua_State *L) {
   lua_assert(L->stack_last - L->stack == L->stacksize - EXTRA_STACK - 1);
   if (L->size_ci > LUAI_MAXCALLS) {  /* there was an overflow? */
@@ -90,7 +90,9 @@ static void resetstack (lua_State *L, int status) {
   L->errorJmp = NULL;
 }
 
-/* 尝试调用异常处理函数 */
+/* 尝试调用异常处理函数 
+** 主要在luaG_errormsg中被间接调用
+*/
 void luaD_throw (lua_State *L, int errcode) {
   if (L->errorJmp) {
     L->errorJmp->status = errcode;
@@ -107,7 +109,9 @@ void luaD_throw (lua_State *L, int errcode) {
   }
 }
 
-
+/* 受保护状态下调用函数
+** 主要是C的longjump机制
+*/
 int luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
   struct lua_longjmp lj;
   lj.status = 0;
@@ -122,7 +126,7 @@ int luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
 
 /* }====================================================== */
 
-
+/* stack因空间不足等原因调整后，这里更新调用链的相关信息使其指向新的stack */
 static void correctstack (lua_State *L, TValue *oldstack) {
   CallInfo *ci;
   GCObject *up;
@@ -137,18 +141,18 @@ static void correctstack (lua_State *L, TValue *oldstack) {
   L->base = (L->base - oldstack) + L->stack;
 }
 
-
+/* 重新调整stack的大小 */
 void luaD_reallocstack (lua_State *L, int newsize) {
   TValue *oldstack = L->stack;
   int realsize = newsize + 1 + EXTRA_STACK;
-  lua_assert(L->stack_last - L->stack == L->stacksize - EXTRA_STACK - 1);
+  lua_assert(L->stack_last - L->stack == L->stacksize - EXTRA_STACK - 1);	/* 和stack_init()函数对应 */
   luaM_reallocvector(L, L->stack, L->stacksize, realsize, TValue);
   L->stacksize = realsize;
   L->stack_last = L->stack+newsize;
   correctstack(L, oldstack);
 }
 
-
+/* 调整callInfo链的大小 */
 void luaD_reallocCI (lua_State *L, int newsize) {
   CallInfo *oldci = L->base_ci;
   luaM_reallocvector(L, L->base_ci, L->size_ci, newsize, CallInfo);
@@ -167,17 +171,17 @@ void luaD_growstack (lua_State *L, int n) {
 
 
 static CallInfo *growCI (lua_State *L) {
-  if (L->size_ci > LUAI_MAXCALLS)  /* overflow while handling overflow? */
+  if (L->size_ci > LUAI_MAXCALLS)  /* overflow while handling overflow? 嵌套调用层次太深了，直接报错，方便用户检查调用情况 */
     luaD_throw(L, LUA_ERRERR);
   else {
-    luaD_reallocCI(L, 2*L->size_ci);
+    luaD_reallocCI(L, 2*L->size_ci);	/* 简单粗暴，直接扩大一倍 */
     if (L->size_ci > LUAI_MAXCALLS)
       luaG_runerror(L, "stack overflow");
   }
   return ++L->ci;
 }
 
-
+/* 调用钩子函数 */
 void luaD_callhook (lua_State *L, int event, int line) {
   lua_Hook hook = L->hook;
   if (hook && L->allowhook) {
@@ -195,24 +199,30 @@ void luaD_callhook (lua_State *L, int event, int line) {
     lua_assert(L->ci->top <= L->stack_last);
     L->allowhook = 0;  /* cannot call hooks inside a hook */
     lua_unlock(L);
-    (*hook)(L, &ar);
+    (*hook)(L, &ar);	/* 正式调用钩子函数 */
     lua_lock(L);
     lua_assert(!L->allowhook);
+	/* !!!! 现场需恢复，别忘了，亲 */
     L->allowhook = 1;
     L->ci->top = restorestack(L, ci_top);
     L->top = restorestack(L, top);
   }
 }
 
-
+/*
+**补齐固定形参(若实际传入的参数不够)
+**将传给固定形参的值MV到top之上且纠正top
+**将剩下(若还有剩下)的参数留给变参...
+*/
 static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   int i;
   int nfixargs = p->numparams;
   Table *htab = NULL;
   StkId base, fixed;
-  for (; actual < nfixargs; ++actual)	/* 传入参数的数量不够填补fixed参数的，直接补nil */
+  /* 传入参数的数量不够填补fixed参数的，直接补nil：至少得把形参需要的个数补齐 */
+  for (; actual < nfixargs; ++actual)	
     setnilvalue(L->top++);
-#if defined(LUA_COMPAT_VARARG)
+#if defined(LUA_COMPAT_VARARG)	/* 将留给...的参数信息打包到额外的arg表中 */
   if (p->is_vararg & VARARG_NEEDSARG) { /* compat. with old-style vararg? */
     int nvar = actual - nfixargs;  /* number of extra arguments */
     lua_assert(p->is_vararg & VARARG_HASARG);
@@ -230,10 +240,10 @@ static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   base = L->top;  /* final position of first argument */
 
   /* 从第一个参数开始移动其值到被调函数的fixed‘arg域,直到给所有的fixed'arg赋值为止
-  ** 如果还剩下多余的参数，则直接保留下来，无需移动
+  ** 如果还剩下多余的参数，则直接保留下来(留给变参...)，无需移动
   */
   for (i=0; i<nfixargs; i++) {	
-    setobjs2s(L, L->top++, fixed+i);
+    setobjs2s(L, L->top++, fixed+i);	/* !!!!这里移动了top指针 */
     setnilvalue(fixed+i);
   }
   /* add `arg' parameter */
@@ -244,7 +254,7 @@ static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   return base;
 }
 
-
+/* 直接看代码 */
 static StkId tryfuncTM (lua_State *L, StkId func) {
   const TValue *tm = luaT_gettmbyobj(L, func, TM_CALL);
   StkId p;
@@ -265,18 +275,23 @@ static StkId tryfuncTM (lua_State *L, StkId func) {
   ((L->ci == L->end_ci) ? growCI(L) : \
    (condhardstacktests(luaD_reallocCI(L, L->size_ci)), ++L->ci))
 
-/* 先做调用前的准备工作，后进入函数调用(for C,not Lua) */
+/* 先做调用前的准备工作，后进入函数调用(for C,not Lua)
+** nresults:-1返回所有的返回值
+** 0：不要返回值
+** 1：期待一个返回值
+*/
 int luaD_precall (lua_State *L, StkId func, int nresults) {
   LClosure *cl;
   ptrdiff_t funcr;	/* 当前调用函数的pc距离stack栈底的偏移量 */
   if (!ttisfunction(func)) /* `func' is not a function? */
     func = tryfuncTM(L, func);  /* check the `function' tag method */
-  /* 随着新的调用产生,ci链可能因为增长而移动位置
+  
+  /* 随着新的调用产生,ci链/stack可能因为增长而移动位置
   ** 故不能记住绝地位置而记住相对位置，后面根据此值最终确定ci->func 
   */
   funcr = savestack(L, func);	
   cl = &clvalue(func)->l;
-  L->ci->savedpc = L->savedpc;
+  L->ci->savedpc = L->savedpc;	/* 正式调用前，存档L->savedop至L->ci->savepc */
   if (!cl->isC) {  /* Lua function? prepare its call */
     CallInfo *ci;
     StkId st, base;
@@ -315,7 +330,6 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
   else {  /* if is a C function, call it */
     CallInfo *ci;
     int n;
-    /* 先处理stack后ci,避免调整stack后又调整ci */
     luaD_checkstack(L, LUA_MINSTACK);  /* ensure minimum stack size */
 	/* 填充新的CallInfo */
     ci = inc_ci(L);  /* now `enter' new function */
@@ -367,12 +381,16 @@ int luaD_poscall (lua_State *L, StkId firstResult) {
   L->savedpc = (ci - 1)->savedpc;  /* restore savedpc */
   
   /* move results to correct place */
-  for (i = wanted; i != 0 && firstResult < L->top; i--)
+  for (i = wanted; i != 0 && firstResult < L->top; i--)	/* 这个判断即处理非尾调用，又处理了尾调用 */
     setobjs2s(L, res++, firstResult++);	/* wanted根据实际返回数量赋值 */
   while (i-- > 0)
     setnilvalue(res++);	/* local a, b, c = funcA(...), 针对 funcA的返回值不够则补nil */
-  
-  L->top = res;	/* C调用这句好理解,Lua调用可能在其它地方做了调整(RETURN那里调整了) */
+
+  /* C调用这句好理解,Lua调用可能在其它地方做了调整(RETURN那里调整了) 
+  ** L->top恢复到最后一个返回参数在stack的位置，这里和调用函数之前，
+  ** 将L->top设置到最后一个传入参数在stack的位置相呼应了！！！
+  */
+  L->top = res;	
   return (wanted - LUA_MULTRET);  /* 0 iff wanted == LUA_MULTRET */
 }
 
