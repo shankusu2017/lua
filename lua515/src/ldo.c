@@ -64,10 +64,11 @@ void luaD_seterrorobj (lua_State *L, int errcode, StkId oldtop) {
       break;
     }
   }
+  /* 这里结合 luaD_pcall 来一起来看 */
   L->top = oldtop + 1;	/* correct top */
 }
 
-/* 空闲的callInfo过多时，尝试搜索下其空间 */
+/* 空闲的callInfo过多时，尝试压缩其空间 */
 static void restore_stack_limit (lua_State *L) {
   lua_assert(L->stack_last - L->stack == L->stacksize - EXTRA_STACK - 1);
   if (L->size_ci > LUAI_MAXCALLS) {  /* there was an overflow? */
@@ -77,10 +78,12 @@ static void restore_stack_limit (lua_State *L) {
   }
 }
 
-
+/* 回滚stack到初始状态！！！！ */
 static void resetstack (lua_State *L, int status) {
+  /* 这一下彻底回滚了 */
   L->ci = L->base_ci;
   L->base = L->ci->base;
+  
   luaF_close(L, L->base);  /* close eventual pending closures */
   luaD_seterrorobj(L, status, L->base);
   L->nCcalls = L->baseCcalls;
@@ -95,13 +98,13 @@ static void resetstack (lua_State *L, int status) {
 */
 void luaD_throw (lua_State *L, int errcode) {
   if (L->errorJmp) {
-    L->errorJmp->status = errcode;
-    LUAI_THROW(L, L->errorJmp);
+    L->errorJmp->status = errcode;  /* !!! 跳出去之前设置status */
+    LUAI_THROW(L, L->errorJmp); 	/* 正式跳出 */
   }
-  else {
+  else {	/* 没有设置errHdl，调用panic后退出进程 */
     L->status = cast_byte(errcode);
     if (G(L)->panic) {
-      resetstack(L, errcode);
+      resetstack(L, errcode);	/* 这里对stack进行收尾 */
       lua_unlock(L);
       G(L)->panic(L);
     }
@@ -109,8 +112,9 @@ void luaD_throw (lua_State *L, int errcode) {
   }
 }
 
-/* 受保护状态下调用函数
+/* longjump上下文下调用C函数
 ** 主要是C的longjump机制
+** 但发生了错误后，调用了用户指定的errHdl后，最后会走到这里而不是直接退出进程
 */
 int luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
   struct lua_longjmp lj;
@@ -121,7 +125,7 @@ int luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
     (*f)(L, ud);
   );
   L->errorJmp = lj.previous;  /* restore old error handler */
-  return lj.status;
+  return lj.status;	/* luaD_throw()中更新了status */
 }
 
 /* }====================================================== */
@@ -365,6 +369,8 @@ static StkId callrethooks (lua_State *L, StkId firstResult) {
 }
 
 /* 函数调用结束后，处理实际返回值和期待返回值的匹配问题
+** 也处理ci链的嵌套逻辑（本层ci结束往后退一层
+**
 ** 即处理C函数调用,也处理Lua函数执行结束即将返回这两种情况
 ** 没有检测C函数说返回了n个参数，当实际上没有返回那么多参数的情况
 */
@@ -416,7 +422,7 @@ void luaD_call (lua_State *L, StkId func, int nResults) {
 
 
 static void resume (lua_State *L, void *ud) {
-  StkId firstArg = cast(StkId, ud);
+  StkId firstArg = cast(StkId, ud);	/* 没有传参时firstArg指向top,下面的firstArg>L->base还是成立 */
   CallInfo *ci = L->ci;
   if (L->status == 0) {  /* start coroutine? */
     lua_assert(ci == L->base_ci && firstArg > L->base);
@@ -459,11 +465,12 @@ LUA_API int lua_resume (lua_State *L, int nargs) {
   luai_userstateresume(L, nargs);
   lua_assert(L->errfunc == 0);
   L->baseCcalls = ++L->nCcalls;
-  status = luaD_rawrunprotected(L, resume, L->top - nargs);
+  /* 必须protected状态下call，不然协程出错，整个进程都会被关闭 */
+  status = luaD_rawrunprotected(L, resume, L->top - nargs);	
   if (status != 0) {  /* error? */
     L->status = cast_byte(status);  /* mark thread as `dead' */
     luaD_seterrorobj(L, status, L->top);
-    L->ci->top = L->top;
+    L->ci->top = L->top;	/* 上面压入了errMsg这里更新下top */
   }
   else {
     lua_assert(L->nCcalls == L->baseCcalls);
@@ -486,20 +493,27 @@ LUA_API int lua_yield (lua_State *L, int nresults) {
   return -1;
 }
 
-
+/* old_top 指向被调用函数slot 
+** KEYCODE
+*/
 int luaD_pcall (lua_State *L, Pfunc func, void *u,
                 ptrdiff_t old_top, ptrdiff_t ef) {
   int status;
   unsigned short oldnCcalls = L->nCcalls;
-  ptrdiff_t old_ci = saveci(L, L->ci);
+  
+  /* 存档当前的ci,以便发生错误恢复时使用 */
+  ptrdiff_t old_ci = saveci(L, L->ci);	/* 这里只能记住offset而不是绝对地址(call过程中ci可能会调整!) */
+  
   lu_byte old_allowhooks = L->allowhook;
   ptrdiff_t old_errfunc = L->errfunc;
   L->errfunc = ef;
   status = luaD_rawrunprotected(L, func, u);
+
+  /* 发生了错误，回滚到存档时刻 */
   if (status != 0) {  /* an error occurred? */
     StkId oldtop = restorestack(L, old_top);
     luaF_close(L, oldtop);  /* close eventual pending closures */
-    luaD_seterrorobj(L, status, oldtop);
+    luaD_seterrorobj(L, status, oldtop);	/* 顺带correct了top */
     L->nCcalls = oldnCcalls;
     L->ci = restoreci(L, old_ci);
     L->base = L->ci->base;

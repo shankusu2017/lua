@@ -38,13 +38,14 @@ typedef struct LG {
 } LG;
   
 
-/* 重点函数 */
+/* KEYCODE 重点函数必须彻底弄懂 */
 static void stack_init (lua_State *L1, lua_State *L) {
   /* initialize CallInfo array */
   L1->base_ci = luaM_newvector(L, BASIC_CI_SIZE, CallInfo);
   L1->ci = L1->base_ci;
   L1->size_ci = BASIC_CI_SIZE;
   L1->end_ci = L1->base_ci + L1->size_ci - 1;
+  
   /* initialize stack array */
   L1->stack = luaM_newvector(L, BASIC_STACK_SIZE + EXTRA_STACK, TValue);
   L1->stacksize = BASIC_STACK_SIZE + EXTRA_STACK;
@@ -54,7 +55,6 @@ static void stack_init (lua_State *L1, lua_State *L) {
   /* initialize first ci */
   L1->ci->func = L1->top;
   setnilvalue(L1->top++);  /* 当前“没有”调用函数,所以这里为nil `function' entry for this `ci' */
-  
   L1->base = L1->ci->base = L1->top;
   L1->ci->top = L1->top + LUA_MINSTACK;	/* 给调用栈预留出 LUA_MINSTACK 个slot空间 */
 }
@@ -100,7 +100,7 @@ static void preinit_state (lua_State *L, global_State *g) {
   L->base_ci = L->ci = NULL;
   L->savedpc = NULL;
   L->errfunc = 0;
-  setnilvalue(gt(L));
+  setnilvalue(gt(L));	/* 全局变量暂定为nil */
 }
 
 
@@ -117,7 +117,7 @@ static void close_state (lua_State *L) {
   (*g->frealloc)(g->ud, fromstate(L), state_size(LG), 0);
 }
 
-/* L1->env尚未赋值，也为初始化，是一个随机值 */
+/* L1->env尚未赋值，也未初始化，是一个随机值 */
 lua_State *luaE_newthread (lua_State *L) {
   lua_State *L1 = tostate(luaM_malloc(L, state_size(lua_State)));
   luaC_link(L, obj2gco(L1), LUA_TTHREAD);
@@ -128,6 +128,9 @@ lua_State *luaE_newthread (lua_State *L) {
   L1->basehookcount = L->basehookcount;
   L1->hook = L->hook;
   resethookcount(L1);
+  /* 这个判断是必要的，因为新生的thread尚未有任何对象引用它，可能被GC？
+  ** 此assert判断上面的代码不能触发gc流程
+  */
   lua_assert(iswhite(obj2gco(L1)));
   return L1;
 }

@@ -668,7 +668,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       }
       case OP_RETURN: {
 	  	/* return R(A), ... ,R(A+B-2) */
-        int b = GETARG_B(i);
+        int b = GETARG_B(i);	/* 0：返回所有值，1：返回1个值，2：返回2个值 ... */
         if (b != 0) 
 			L->top = ra+b-1;	/* 以便确定返回值的确切个数 */
         if (L->openupval) luaF_close(L, base);

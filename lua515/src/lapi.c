@@ -149,7 +149,7 @@ LUA_API lua_State *lua_newthread (lua_State *L) {
   setthvalue(L, L->top, L1);
   api_incr_top(L);
   lua_unlock(L);
-  luai_userstatethread(L, L1);	/* 定制化功能：运行用户指定的函数(若存在) */
+  luai_userstatethread(L, L1);	/* 定制化功能：运行用户指定的钩子函数(若存在) */
   return L1;
 }
 

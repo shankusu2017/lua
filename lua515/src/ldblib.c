@@ -325,7 +325,9 @@ static int db_debug (lua_State *L) {
 #define LEVELS1	12	/* size of the first part of the stack */
 #define LEVELS2	10	/* size of the second part of the stack */
 
-/* debug.traceback ([thread,] [message [, level]]) */
+/* debug.traceback ([thread,] [message [, level]]) 
+** 这里可以查找指定Thread的traceback(用于coroutinue...)
+*/
 static int db_errorfb (lua_State *L) {
   int level;
   int firstpart = 1;  /* still before eventual `...' */

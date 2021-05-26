@@ -106,7 +106,7 @@ end
 
 function g_lua()
 	-- l_fun(...)
-	-- print("i' g_lua ")
+	print("i' g_lua ")
 	-- print("call c'fun")
 	-- t_fun_c()
 	e3()

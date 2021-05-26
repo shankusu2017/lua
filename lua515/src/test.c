@@ -44,37 +44,35 @@ int t_fun_c(lua_State *vm) {
     //lua_call(vm, 2, 0);
 }
 
-int errorFunc_traceback(lua_State *L)
-{
-    if(!lua_isstring(L,1))                      //错误信息不是string类型
-        return 1;                               // 不做处理
-    lua_getfield(L,LUA_GLOBALSINDEX,"debug");    //获取debug函数，压入栈中
-    if(lua_istable(L,-1))
-    {
-        lua_pop(L,1);
-        return 1;
-    }
-    lua_getfield(L,-1,"traceback");             //获取debug.tracenack函数,压入栈中
-    if(lua_isfunction(L,-1))
-    {
-        lua_pop(L,2);
-        return 1;
-    }
-    lua_pushvalue(L,1);                         //传递错误信息
-    lua_pushinteger(L,2);                       //skip this function and traceback
-    lua_call(L,2,1);                            //调用debug.traceback
-    const char *errMsg  = lua_tolstring(L, -1, 1024);
-    printf("errMsg(%s", errMsg);
+static int traceback (lua_State *L) {
+  if (!lua_isstring(L, 1))  /* 'message' not a string? */
+    return 1;  /* keep it intact */
+  lua_getfield(L, LUA_GLOBALSINDEX, "debug");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
     return 1;
+  }
+  lua_getfield(L, -1, "traceback");
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2);
+    return 1;
+  }
+  lua_pushvalue(L, 1);  /* pass error message */
+  lua_pushinteger(L, 2);  /* skip this function and traceback */
+  lua_call(L, 2, 1);  /* call debug.traceback */
+  size_t len;
+  const char *errMsg  = lua_tolstring(L, -1, &len);
+  printf("errMsg(%s", errMsg);
+  return 1;
 }
 
 int t_exe_lua(lua_State *vm) {
     {
+        lua_pushcclosure(vm, traceback, 0);
         lua_getglobal(vm, "g_lua");
-        lua_pushcclosure(vm, errorFunc_traceback, 0);
         lua_pushinteger(vm, 1);
         lua_pushinteger(vm, 2);
-        lua_pcall(vm, 2, 0, 1);
+        lua_pcall(vm, 2, LUA_MULTRET, -4);
 
         return 0;
     }

@@ -116,8 +116,11 @@ typedef struct global_State {
 struct lua_State {
   CommonHeader;
   lu_byte status;
+  
   StkId top;  /* first free slot in the stack, 当前指向的addr是可用的！！！ */
-  StkId base;  /* base of current function, 当前调用frame中，除调用函数外，第一个传入参数的addr, base-1：当前被调用函数的addr */
+  StkId base;  /* base of current function, 当前调用frame中，第一个形参的addr，具体解释看CallInfo */
+  /* 没有额外定义func，这点有印象就好 */
+  
   global_State *l_G;
   CallInfo *ci;  /* call info for current function */
   const Instruction *savedpc;  /* `savedpc' of current function */

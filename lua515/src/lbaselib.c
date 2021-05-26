@@ -481,13 +481,14 @@ static const luaL_Reg base_funcs[] = {
 */
 
 #define CO_RUN	0	/* running */
-#define CO_SUS	1	/* suspended */
+#define CO_SUS	1	/* suspended(暂停ing) */
 #define CO_NOR	2	/* 'normal' (it resumed another coroutine) */
 #define CO_DEAD	3
 
 static const char *const statnames[] =
     {"running", "suspended", "normal", "dead"};
 
+/* 这个函数值得多看几遍 */
 static int costatus (lua_State *L, lua_State *co) {
   if (L == co) return CO_RUN;
   switch (lua_status(co)) {
@@ -495,9 +496,9 @@ static int costatus (lua_State *L, lua_State *co) {
       return CO_SUS;
     case 0: {
       lua_Debug ar;
-      if (lua_getstack(co, 0, &ar) > 0)  /* does it have frames? */
+      if (lua_getstack(co, 0, &ar) > 0)  /* does it have frames?（当前处于某一层条用吗？） */
         return CO_NOR;  /* it is running */
-      else if (lua_gettop(co) == 0)
+      else if (lua_gettop(co) == 0)	
           return CO_DEAD;
       else
         return CO_SUS;  /* initial state */
@@ -520,13 +521,15 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
   int status = costatus(L, co);
   if (!lua_checkstack(co, narg))
     luaL_error(L, "too many arguments to resume");
-  if (status != CO_SUS) {
+  if (status != CO_SUS) {	/* 只能Goon暂停的routinue */
     lua_pushfstring(L, "cannot resume %s coroutine", statnames[status]);
     return -1;  /* error flag */
   }
+  /* 将参数移到指定的Thread中 */
   lua_xmove(L, co, narg);
   lua_setlevel(L, co);
   status = lua_resume(co, narg);
+  /* 移动coroutinue的返回结果到当前的Lthread的stack上 */
   if (status == 0 || status == LUA_YIELD) {
     int nres = lua_gettop(co);
     if (!lua_checkstack(L, nres + 1))
@@ -544,6 +547,7 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
 static int luaB_coresume (lua_State *L) {
   lua_State *co = lua_tothread(L, 1);
   int r;
+  /* 传入的必须是个非nil */
   luaL_argcheck(L, co, 1, "coroutine expected");
   r = auxresume(L, co, lua_gettop(L) - 1);
   if (r < 0) {
@@ -573,7 +577,7 @@ static int luaB_auxwrap (lua_State *L) {
   return r;
 }
 
-
+/* 创建一个coroutinue */
 static int luaB_cocreate (lua_State *L) {
   lua_State *NL = lua_newthread(L);
   luaL_argcheck(L, lua_isfunction(L, 1) && !lua_iscfunction(L, 1), 1,
@@ -590,7 +594,7 @@ static int luaB_cowrap (lua_State *L) {
   return 1;
 }
 
-
+/* yield lua接口 */
 static int luaB_yield (lua_State *L) {
   return lua_yield(L, lua_gettop(L));
 }
