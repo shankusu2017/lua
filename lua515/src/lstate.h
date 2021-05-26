@@ -136,7 +136,10 @@ struct lua_State {
   CallInfo *end_ci;  /* points after end of ci array*/
   int size_ci;  /* size of array `base_ci' */
   unsigned short nCcalls;  /* number of nested C calls */
-  unsigned short baseCcalls;  /* nested C calls when resuming coroutine */
+  /* nested C calls when resuming coroutine
+  **（在进入resume之前嵌套的C调用，以便判断从Cyiled返回时resume中是否夹杂了新的C调用） ???
+  */
+  unsigned short baseCcalls;  
   
   lu_byte hookmask;
   lu_byte allowhook;

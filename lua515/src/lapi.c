@@ -116,7 +116,7 @@ LUA_API void lua_xmove (lua_State *from, lua_State *to, int n) {
   if (from == to) return;
   lua_lock(to);
   api_checknelems(from, n);	// from栈内是否有不少于n个元素
-  api_check(from, G(from) == G(to));	// 不是同一个vm下，则报错(线程安全的前提)
+  api_check(from, G(from) == G(to));	// 不是同一个vm下，则报错(要保证线程安全)
   api_check(from, to->ci->top - to->top >= n);	// 目的地是否有足够的空闲slot
   from->top -= n;
   for (i = 0; i < n; i++) {

@@ -465,7 +465,10 @@ LUA_API int lua_resume (lua_State *L, int nargs) {
   luai_userstateresume(L, nargs);
   lua_assert(L->errfunc == 0);
   L->baseCcalls = ++L->nCcalls;
-  /* 必须protected状态下call，不然协程出错，整个进程都会被关闭 */
+  /* 必须protected状态下call，不然协程出错，整个进程都会被关闭 
+  ** 这里没有在协程中新生成ci链,但原始的state中有调用resume的ci链
+  ** resume函数链中对协程新生成了ci链（如果是第一次resume）
+  */
   status = luaD_rawrunprotected(L, resume, L->top - nargs);	
   if (status != 0) {  /* error? */
     L->status = cast_byte(status);  /* mark thread as `dead' */
@@ -474,7 +477,7 @@ LUA_API int lua_resume (lua_State *L, int nargs) {
   }
   else {
     lua_assert(L->nCcalls == L->baseCcalls);
-    status = L->status;
+    status = L->status;	/* coroutinue运行中出让则为 LUA_YIELD */
   }
   --L->nCcalls;
   lua_unlock(L);

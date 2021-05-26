@@ -82,7 +82,8 @@ LUA_API int lua_gethookcount (lua_State *L) {
 }
 
 /* 按照传入的level尝试确定ar->i_ci（want的调用层值）的值 
-** level:本层调用，1：往前退一层，2：往前退2层，N：退n层
+** level:0:本层调用，1：往前退一层，2：往前退2层，N：退n层
+** RETURNS: status:1:能找到指定的层(不包含L->base_ci)，0：找不到指定的层（level为负数除外)
 */
 LUA_API int lua_getstack (lua_State *L, int level, lua_Debug *ar) {
   int status;
@@ -622,7 +623,7 @@ static void addinfo (lua_State *L, const char *msg) {
   }
 }
 
-
+/* 若设置了errfunHdl则先调用句柄，再抛出异常 */
 void luaG_errormsg (lua_State *L) {
   /* 抛出异常之前尝试调用errfunc */
   if (L->errfunc != 0) {  /* is there an error handling function? */

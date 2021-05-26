@@ -481,30 +481,36 @@ static const luaL_Reg base_funcs[] = {
 */
 
 #define CO_RUN	0	/* running */
-#define CO_SUS	1	/* suspended(暂停ing) */
+#define CO_SUS	1	/* suspended(暂停ing)，coroutinue构建出来，压入co.func后的状态，或者主动YIELD时的状态 */
 #define CO_NOR	2	/* 'normal' (it resumed another coroutine) */
 #define CO_DEAD	3
 
 static const char *const statnames[] =
     {"running", "suspended", "normal", "dead"};
 
-/* 这个函数值得多看几遍 */
+/* 这个函数值得多看几遍 
+** KEYCODE
+*/
 static int costatus (lua_State *L, lua_State *co) {
   if (L == co) return CO_RUN;
   switch (lua_status(co)) {
-    case LUA_YIELD:
+    case LUA_YIELD:	/* coroutinue出让ing */
       return CO_SUS;
     case 0: {
       lua_Debug ar;
       if (lua_getstack(co, 0, &ar) > 0)  /* does it have frames?（当前处于某一层条用吗？） */
         return CO_NOR;  /* it is running */
+	  
+	  /* 构建coroutinue后便压入一个初始的co.fun，所以这里不会lua_gettop(co) == 0 
+	  ** 如果所有的co.fun都运行完毕，母state会移走所有的ret,此时lua_gettop(co)=0,意味着co生命周期已结束
+	  */ 
       else if (lua_gettop(co) == 0)	
           return CO_DEAD;
       else
-        return CO_SUS;  /* initial state */
+        return CO_SUS;  /* initial state: state被构建出来后的初始状态(压入了一个func所以上面的lua_gettop()==0不成立) */
     }
     default:  /* some error occured */
-      return CO_DEAD;
+      return CO_DEAD;	/* 报错了,当然是CO_DEAD */
   }
 }
 
@@ -521,7 +527,7 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
   int status = costatus(L, co);
   if (!lua_checkstack(co, narg))
     luaL_error(L, "too many arguments to resume");
-  if (status != CO_SUS) {	/* 只能Goon暂停的routinue */
+  if (status != CO_SUS) {	/* 只能continue暂停的routinue,或刚构建出来的co */
     lua_pushfstring(L, "cannot resume %s coroutine", statnames[status]);
     return -1;  /* error flag */
   }
@@ -529,7 +535,7 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
   lua_xmove(L, co, narg);
   lua_setlevel(L, co);
   status = lua_resume(co, narg);
-  /* 移动coroutinue的返回结果到当前的Lthread的stack上 */
+  /* 将co的返回结果移到当前的thread的stack上 */
   if (status == 0 || status == LUA_YIELD) {
     int nres = lua_gettop(co);
     if (!lua_checkstack(L, nres + 1))
@@ -547,10 +553,10 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
 static int luaB_coresume (lua_State *L) {
   lua_State *co = lua_tothread(L, 1);
   int r;
-  /* 传入的必须是个非nil */
+  /* 传入的必须是个非nil，最好对类型进行检查 */
   luaL_argcheck(L, co, 1, "coroutine expected");
   r = auxresume(L, co, lua_gettop(L) - 1);
-  if (r < 0) {
+  if (r < 0) {	/* 报错了 */
     lua_pushboolean(L, 0);
     lua_insert(L, -2);
     return 2;  /* return false + error message */

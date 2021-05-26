@@ -602,7 +602,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         continue;
       }
       case OP_CALL: {	/* R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
-        int b = GETARG_B(i);	// 参数个数
+	    int b = GETARG_B(i);	/* 传入参数个数， 0：...  1：0个，2：1个，3：2个依次类推 */
         int nresults = GETARG_C(i) - 1;	// 期待的返回值个数 C:0(...), 1:(期待返回0个)，2:(期待返回1个)
         
         /* 当传入的参数数量明确时，移动top,
