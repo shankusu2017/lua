@@ -55,17 +55,17 @@ typedef struct CallInfo {
   ** ForC:本次函数调用中,存放第一个参数的slot,top-base=已压入的调用参数个数,被调用的函数由fun指针指向 
   
   ** ForLua:第一个给定参数的位置
-  ** 如果lua函数的参数个数固定，普通含义
+  ** 如果lua函数的参数个数固定，普通含义(同C)
   ** 如果lua函数的参数不固定，func-->(top1-(base=top1))之间的传入的参数(本函数被调用时实际传入的所有参数)在调用本函数之前其中的部分被复制到了base-->top2
   **     中，原空间填nil,这样base->top2的空间就是新的固定参数的位置，base-fun又可以计算本变参函数被调用时实际接收了多少参数,base又满足统一的含义(指向了第一个固定参数的位置)
   **     只是func->base之间有了空隙而已(因为空出来的slot都被拿去填补了lua函数形参中的固定参数去了)，故而上面说的被复制的个数等于函数形参的个数
   **     eg:定义：funcA(a,b,c, ...)
   **        实际调用：funcA(1,2,3,4,5)
-            那么实参1，2，3会从base移动到base上,4,5被保留下来作为funA的...参数
+            那么实参1，2，3会从funA->base(top1)移动到base上(此后top1->top2),4,5被保留下来作为funA的...参数
   */
   StkId base;  
   StkId func;  /* function index in the stack,本次函数调用的fun在frame中的位置 */
-  const Instruction *savedpc;	/* next code,本次调用被打断时存档,调用恢复时拿出来用？eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
+  const Instruction *savedpc;	/* next code,本次调用被打断时存档,调用恢复时拿出来用eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
   int nresults;  /* expected number of results from this function -1:要全部返回值, 0:不要返回值，1：要一个返回值 */
   int tailcalls;  /* number of tail calls lost under this entry */
 } CallInfo;

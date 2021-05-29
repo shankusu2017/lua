@@ -775,7 +775,7 @@ LUA_API int lua_setfenv (lua_State *L, int idx) {
 ** `load' and `call' functions (run Lua code)
 */
 
-
+/* 函数调用流程中：会调整L->top，这里对L->ci->top再次确认下? */
 #define adjustresults(L,nres) \
     { if (nres == LUA_MULTRET && L->top >= L->ci->top) L->ci->top = L->top; }
 
@@ -791,7 +791,7 @@ LUA_API void lua_call (lua_State *L, int nargs, int nresults) {
   checkresults(L, nargs, nresults);
   func = L->top - (nargs+1);
   luaD_call(L, func, nresults);
-  adjustresults(L, nresults);
+  adjustresults(L, nresults);	/* 与之匹配的有个 adjust_varargs 调整传入参数*/
   lua_unlock(L);
 }
 
@@ -816,7 +816,7 @@ static void f_call (lua_State *L, void *ud) {
 LUA_API int lua_pcall (lua_State *L, int nargs, int nresults, int errfunc) {
   struct CallS c;
   int status;
-  ptrdiff_t func;
+  ptrdiff_t func;	/* errHdl */
   lua_lock(L);
   api_checknelems(L, nargs+1);	// fun+nargs=nargs+1
   checkresults(L, nargs, nresults);

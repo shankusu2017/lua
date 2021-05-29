@@ -531,7 +531,7 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
     lua_pushfstring(L, "cannot resume %s coroutine", statnames[status]);
     return -1;  /* error flag */
   }
-  /* 将参数移到指定的Thread中 */
+  /* 将母state中压入的参数移到指定的co中 */
   lua_xmove(L, co, narg);
   lua_setlevel(L, co);
   status = lua_resume(co, narg);
@@ -549,13 +549,13 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
   }
 }
 
-
+/* coroutinue.resume库函数入口 */
 static int luaB_coresume (lua_State *L) {
   lua_State *co = lua_tothread(L, 1);
   int r;
   /* 传入的必须是个非nil，最好对类型进行检查 */
   luaL_argcheck(L, co, 1, "coroutine expected");
-  r = auxresume(L, co, lua_gettop(L) - 1);
+  r = auxresume(L, co, lua_gettop(L) - 1);	/* 1:表示co */
   if (r < 0) {	/* 报错了 */
     lua_pushboolean(L, 0);
     lua_insert(L, -2);

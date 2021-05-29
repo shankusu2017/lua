@@ -623,7 +623,9 @@ static void addinfo (lua_State *L, const char *msg) {
   }
 }
 
-/* 若设置了errfunHdl则先调用句柄，再抛出异常 */
+/* 若设置了errfunHdl则先调用句柄，再抛出异常
+** 如果句柄也报错，那么就陷入死循环了
+*/
 void luaG_errormsg (lua_State *L) {
   /* 抛出异常之前尝试调用errfunc */
   if (L->errfunc != 0) {  /* is there an error handling function? */

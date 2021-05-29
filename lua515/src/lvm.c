@@ -358,7 +358,11 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
 
 #define dojump(L,pc,i)	{(pc) += (i); luai_threadyield(L);}
 
-
+/* x可能触发新的frame，这里保存和恢复“部分现场”配合下面的execute一起看 
+** pc:为何要存档呢？这是一个局部变量，且是相对frame有效，若切换execute则pc作为上一个execute的局部变量保存起来了，
+**    所以为啥要保存这个变量呢？
+** base: {x}可能修改stack,造成base记录的本frame的base失效，故而这里要刷新base
+*/
 #define Protect(x)	{ L->savedpc = pc; {x;}; base = L->base; }
 
 /* 这个宏有意思哈 */ 
@@ -387,12 +391,17 @@ void luaV_execute (lua_State *L, int nexeccalls) {
   StkId base;
   TValue *k;
   const Instruction *pc;
- reentry:  /* entry point */
-  lua_assert(isLua(L->ci));
+  
+ reentry:  /* entry point for new (callInfo,frame) */
+  lua_assert(isLua(L->ci));	/* C函数frame的执行不在这里，亲! */
 
   /* KEYCODE vm执行的关键参数:base,top,pc,savedpc, closure,k, L->ci,
   ** 后续因为call和return等切换调用栈时，必须正确处理上述参数
+  ** 
+  ** !!!!!!!! L->top没有在这里更新，这点要有印象，resason:类似funA(funB())一个函数(frame)运行完毕时的某些状态eg:L->top
+  ** 对上下文的frame可能有影响，所以这里没有更新L->top，而是让有关业务(return,call...)自行处理
   */
+  
   pc = L->savedpc;
   cl = &clvalue(L->ci->func)->l;
   base = L->base;
@@ -416,7 +425,9 @@ void luaV_execute (lua_State *L, int nexeccalls) {
     ra = RA(i);
     lua_assert(base == L->base && L->base == L->ci->base);
     lua_assert(base <= L->top && L->top <= L->stack + L->stacksize);
-    lua_assert(L->top == L->ci->top || luaG_checkopenop(i));	/* luaG_checkopenop()蛮有意思的，需要彻底读懂(配合相关的指令逻辑一起看),看不懂则等看完相关指令后再看 */
+
+	/* luaG_checkopenop的用途对照上面L->top的注释看就明白了 */
+    lua_assert(L->top == L->ci->top || luaG_checkopenop(i));
     switch (GET_OPCODE(i)) {
       case OP_MOVE: {
         setobjs2s(L, ra, RB(i));
@@ -548,6 +559,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       case OP_CONCAT: {
         int b = GETARG_B(i);
         int c = GETARG_C(i);
+		/* */
         Protect(luaV_concat(L, c-b+1, c); luaC_checkGC(L));
         setobjs2s(L, RA(i), base+b);
         continue;
@@ -602,45 +614,58 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         continue;
       }
       case OP_CALL: {	/* R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
-	    int b = GETARG_B(i);	/* 传入参数个数， 0：...  1：0个，2：1个，3：2个依次类推 */
-        int nresults = GETARG_C(i) - 1;	// 期待的返回值个数 C:0(...), 1:(期待返回0个)，2:(期待返回1个)
+	    int b = GETARG_B(i);			/* 传入参数个数，          B:0：...  1：0个，2：1个，3：2个依次类推 */
+        int nresults = GETARG_C(i) - 1;	/* 期待的返回值个数 C:0(...), 1:(期待返回0个)，2:(期待返回1个) */
         
-        /* 当传入的参数数量明确时，移动top,
-        ** 不明确时，OP_VARARG指令中已确定了top的位置 
-        ** 故而本block之后，L->top都是指向了最后一个参数的"位置",也是告知被调用函数，我已经准备好了你要的参数且top指针已指到相应的位置了
+        /* 注解99: 当传入的参数数量明确时，设置L->top告知被调用函数确切的传入参数数量,
+        ** 不明确时，OP_VARARG(fun(...))/	RETURN.B(funA(funB())等指令中已确定了top的位置，这里不能也不用再更改设置(否则L->top!=实际传入的参数位置)
+        ** 
+        ** L->top都是指向了最后一个参数的"位置",也是告知被调用函数，我已经准备好了你要的参数且top指针已指到相应的位置了
         */
         if (b != 0) 
-			L->top = ra+b;  /* else previous instruction set top(OP_VARARG指令已经准备好了L->top的位置) */
+			L->top = ra+b;  /* else previous instruction set top */
 		
-        L->savedpc = pc;	/* 记下原本接下来要执行的下一条指令 */
+        L->savedpc = pc;	/* 记下原本接下来要执行的下一条指令，等待new'frame运行结束后，继续运行本frame */
         switch (luaD_precall(L, ra, nresults)) {
           case PCRLUA: {
             nexeccalls++;
+			/* 若子函数(frame)是Lua，这里continue才真正开始执行子函数(frame)的opcode */
             goto reentry;  /* restart luaV_execute over new Lua function */
           }
           case PCRC: {
             /* it was a C function (`precall' called it); adjust results */
-            if (nresults >= 0)	
-				L->top = L->ci->top;	/* C调用结束，恢复本lua函数原本的top */
-			else {
-				//没有else，否则就是tailcall指令了?（tailcall后面的return给收尾了或者是setlist指令(local tbl = {fun()})
-			}
-            base = L->base;
-            continue;
+		  
+		    /* 注解100: C调用结束时luaD_poscall已经将所有的返回值填充到RA开头的addr上,L->top指向最后一个返回值
+		    ** 期待返回值个数确定时eg:local a,b = fun()，luaD_poscall函数自动赋值了a,b，L->top已经完成了使命
+		    **     故而这里将其复原。
+		    ** 期待返回个数不确定时eg:local t = {fun()}或funA(funB())，这种情况下L->top指向的最后一个返回值地址，
+		    **     将被下一条指令setlist(B=0)或callA(B=0)用于计算传入参数的个数，所以不能复原(下一条指令要用到)
+		    */
+            if (nresults >= 0)
+				L->top = L->ci->top;
+			
+            base = L->base;	/* 调用过程中stack可能变化而移动，故而重新获取最新的(L->ci->base==L->base)的base，下同 */
+			/* 子函数(frame)为c,luaD_precall的返回意味着子函数(frame)已运行完毕，相关参数也调整完毕
+			** 这里接着运行母函数(frame)的紧跟着OP_CALL后面的下一条指令 */
+            continue;	
           }
           default: {
-            return;  /* yield */
+            return;  /* yield,交出lua的执行权 */
           }
         } 
       }
-      case OP_TAILCALL: {	/* 其后跟着OP_RETURN，结合两个指令一起看(for c'fun call) */
+      case OP_TAILCALL: {
 	  	/* A B C return R(A)(R(A+1), ... ,R(A+B-1)) */
         int b = GETARG_B(i);
-        if (b != 0) L->top = ra+b;  /* else previous instruction set top */
+        if (b != 0) {
+			L->top = ra+b;  /* else previous instruction set top */
+        } else {
+        	/* return fun(...) 前面的OP_VARARG指令设置好了L->top */ 
+        }
         L->savedpc = pc;
         lua_assert(GETARG_C(i) - 1 == LUA_MULTRET);	/* 尾调用的定义中：必须返回其调用返回的所有值，所以这里C必须为0 */
         switch (luaD_precall(L, ra, LUA_MULTRET)) {
-          case PCRLUA: {	/* 这个block{}还没看懂 */
+          case PCRLUA: {	/* 画图，代码不难，看懂它们 */
             /* tail call: put new frame in place of previous one */
             CallInfo *ci = L->ci - 1;  /* previous frame */
             int aux;
@@ -648,11 +673,14 @@ void luaV_execute (lua_State *L, int nexeccalls) {
             StkId pfunc = (ci+1)->func;  /* previous function index */
             if (L->openupval) luaF_close(L, ci->base);
             L->base = ci->base = ci->func + ((ci+1)->base - pfunc);
+
+			/* ！！！！移动后func指向的地址不变，但值改变了（由母函数变成了被尾调用的子函数) */
             for (aux = 0; pfunc+aux < L->top; aux++)  /* move frame down */
               setobjs2s(L, func+aux, pfunc+aux);
+			
             ci->top = L->top = func+aux;  /* correct top */
             lua_assert(L->top == L->base + clvalue(func)->l.p->maxstacksize);
-            ci->savedpc = L->savedpc;
+            ci->savedpc = L->savedpc;	/* 这里也要更新 */
             ci->tailcalls++;  /* one more call lost */
             L->ci--;  /* remove new frame */
             goto reentry;
@@ -668,19 +696,23 @@ void luaV_execute (lua_State *L, int nexeccalls) {
       }
       case OP_RETURN: {
 	  	/* return R(A), ... ,R(A+B-2) */
-        int b = GETARG_B(i);	/* 0：返回所有值，1：返回1个值，2：返回2个值 ... */
-        if (b != 0) 
+        int b = GETARG_B(i);	/* 0：返回所有值，1：返回0个值，2：返回1个值 ... */
+        if (b != 0) /* b==0其它的指令argvar等已处理好top,eg:(return ...)或者return(a, fun()) */
 			L->top = ra+b-1;	/* 以便确定返回值的确切个数 */
         if (L->openupval) luaF_close(L, base);
         L->savedpc = pc;
-        b = luaD_poscall(L, ra);
-        if (--nexeccalls == 0)  /* was previous function running `here'? Lua层面的调用结束了 */
+        b = luaD_poscall(L, ra);	/* 将子函数的返回值移到指定地方，并适配母函数的result要求 */
+
+		/* lua调用结束，返回值已经按照移动到指定的位置(本fun的addr)，且L->top指向了最后一个返回值的位置(可以用来计算返回值的个数)
+		   这里直接return，将CPU交换到母C函数 */
+        if (--nexeccalls == 0)  /* was previous function running `here'? Lua层面的调用结束了，结束lua的execute的执行，返回到C */
           return;  /* no: return */
         else {  /* yes: continue its execution */
-          if (b) L->top = L->ci->top;	/* 不是tailcall的返回，这里更新L->top */
-          lua_assert(isLua(L->ci)); /* 根据nexeccalls来判断 */
-          lua_assert(GET_OPCODE(*((L->ci)->savedpc - 1)) == OP_CALL);	/* 上一个指令必然是call? */
-          goto reentry;
+          if (b) /* 同上注解100，请往上翻阅 */
+		  	L->top = L->ci->top;	/*  */
+          lua_assert(isLua(L->ci)); /* return后，lua连续调用链还没结束，那么上一层必然是个lua函数 */
+          lua_assert(GET_OPCODE(*((L->ci)->savedpc - 1)) == OP_CALL);	/* 上一个指令必然是call */
+          goto reentry;	/* 切回到母lua的execute的frame */
         }
       }
       case OP_FORLOOP: {	/* 先看 OP_FORPREP 指令 */
@@ -730,7 +762,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         pc++;
         continue;
       }
-      case OP_SETLIST: {	/* local t = {...} 本指令之前可能会有一条vararg，所以结合vararg来理解本block的代码 */
+      case OP_SETLIST: {	/* local t = {...} 本指令之前可能会有一条vararg或local t2={fun(...)}产生的OP_CALL，所以结合vararg来理解本block的代码 */
 	  	/* A B C	R(A)[(C-1)*FPF+i] := R(A+i), 1 <= i <= B */
         int n = GETARG_B(i);
         int c = GETARG_C(i);

@@ -102,7 +102,7 @@ void luaD_throw (lua_State *L, int errcode) {
     LUAI_THROW(L, L->errorJmp); 	/* 正式跳出 */
   }
   else {	/* 没有设置errHdl，调用panic后退出进程 */
-    L->status = cast_byte(errcode);
+    L->status = cast_byte(errcode);	/* 无jump点了，在这里设置L的状态，有则由上层业务处理 */
     if (G(L)->panic) {
       resetstack(L, errcode);	/* 这里对stack进行收尾 */
       lua_unlock(L);
@@ -112,9 +112,10 @@ void luaD_throw (lua_State *L, int errcode) {
   }
 }
 
-/* longjump上下文下调用C函数
-** 主要是C的longjump机制
-** 但发生了错误后，调用了用户指定的errHdl后，最后会走到这里而不是直接退出进程
+/* 保护模式下(longjump)调用C函数
+** 但发生错误，则调用了L->errfunc后(若设置了)，后走到这里而不是直接退出进程
+** 
+** RETURN：执行流的执行结果，没有同步到L->status中(由上层调用决定是否同步)
 */
 int luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
   struct lua_longjmp lj;
@@ -130,7 +131,7 @@ int luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
 
 /* }====================================================== */
 
-/* stack因空间不足等原因调整后，这里更新调用链的相关信息使其指向新的stack */
+/* stack移动后更新upvalues,ci-list和L->base */
 static void correctstack (lua_State *L, TValue *oldstack) {
   CallInfo *ci;
   GCObject *up;
@@ -142,6 +143,7 @@ static void correctstack (lua_State *L, TValue *oldstack) {
     ci->base = (ci->base - oldstack) + L->stack;
     ci->func = (ci->func - oldstack) + L->stack;
   }
+  /* L->ci不用调整哈 */
   L->base = (L->base - oldstack) + L->stack;
 }
 
@@ -185,6 +187,17 @@ static CallInfo *growCI (lua_State *L) {
   return ++L->ci;
 }
 
+  static StkId callrethooks (lua_State *L, StkId firstResult) {
+  ptrdiff_t fr = savestack(L, firstResult);  /* next call may change stack */
+  luaD_callhook(L, LUA_HOOKRET, -1);
+  if (f_isLua(L->ci)) {  /* Lua function? */
+    while ((L->hookmask & LUA_MASKRET) && L->ci->tailcalls--) /* tail calls */
+      luaD_callhook(L, LUA_HOOKTAILRET, -1);
+  }
+  return restorestack(L, fr);
+}
+
+
 /* 调用钩子函数 */
 void luaD_callhook (lua_State *L, int event, int line) {
   lua_Hook hook = L->hook;
@@ -215,7 +228,7 @@ void luaD_callhook (lua_State *L, int event, int line) {
 
 /*
 **补齐固定形参(若实际传入的参数不够)
-**将传给固定形参的值MV到top之上且纠正top
+**将传给固定形参的值mv到top之上且纠正top
 **将剩下(若还有剩下)的参数留给变参...
 */
 static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
@@ -223,9 +236,11 @@ static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   int nfixargs = p->numparams;
   Table *htab = NULL;
   StkId base, fixed;
-  /* 传入参数的数量不够填补fixed参数的，直接补nil：至少得把形参需要的个数补齐 */
+  
+  /* 传入的参数数量不够填补fixed参数的，直接补nil：至少得把fixed形参需要的个数补齐 */
   for (; actual < nfixargs; ++actual)	
     setnilvalue(L->top++);
+  
 #if defined(LUA_COMPAT_VARARG)	/* 将留给...的参数信息打包到额外的arg表中 */
   if (p->is_vararg & VARARG_NEEDSARG) { /* compat. with old-style vararg? */
     int nvar = actual - nfixargs;  /* number of extra arguments */
@@ -295,7 +310,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
   */
   funcr = savestack(L, func);	
   cl = &clvalue(func)->l;
-  L->ci->savedpc = L->savedpc;	/* 正式调用前，存档L->savedop至L->ci->savepc */
+  L->ci->savedpc = L->savedpc;	/* 正式调用前，存档L->savedpc至L->ci->savedpc */
   if (!cl->isC) {  /* Lua function? prepare its call */
     CallInfo *ci;
     StkId st, base;
@@ -304,11 +319,11 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     func = restorestack(L, funcr);
     if (!p->is_vararg) {  /* no varargs?(不是变参函数?即函数参数数量固定) */
       base = func + 1;
-      if (L->top > base + p->numparams)	/* 删除栈上多余的传入参数,(下面补nil) */
+      if (L->top > base + p->numparams)	/* 删除栈上多余的传入参数 */
         L->top = base + p->numparams;
     }
     else {  /* vararg function */
-      int nargs = cast_int(L->top - func) - 1;	/* 计算实际传入参数的个数 */
+      int nargs = cast_int(L->top - func) - 1;	/* 计算实际传入的参数个数 */
       base = adjust_varargs(L, p, nargs);
       func = restorestack(L, funcr);  /* previous call may change the stack */
     }
@@ -321,9 +336,16 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     L->savedpc = p->code;  /* starting point */
     ci->tailcalls = 0;
     ci->nresults = nresults;
+	
+	/* 新的函数的私有栈空间直接补nil(参数的区域除外) */
     for (st = L->top; st < ci->top; st++)
-      setnilvalue(st);	/* 新的函数的私有栈空间直接补nil(参数的区域除外) */
+      setnilvalue(st);	
+
+	/* 最后调整L->top使其指向本次ci的栈顶,对于Lua函数而言L->Base---->(L->Base+L->maxstacksize)之间都是我私有的了，且是有效的
+	** C由于L->top是动态变化的，故而L->top的值被设置为传入参数后栈顶的位置，后面会因为push等函数而动态变化-
+	*/
     L->top = ci->top;
+	
     if (L->hookmask & LUA_MASKCALL) {
       L->savedpc++;  /* hooks assume 'pc' is already incremented */
       luaD_callhook(L, LUA_HOOKCALL, -1);
@@ -339,6 +361,7 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     ci = inc_ci(L);  /* now `enter' new function */
     ci->func = restorestack(L, funcr);
     L->base = ci->base = ci->func + 1;	/* C函数没有Lua函数的变参问题，所以这里无需adjust_varargs() */
+	/* "OP_CALL指令"已经将L->top指向了最后一个传入参数的上方 */
     ci->top = L->top + LUA_MINSTACK;	/* 这里和上面luaD_checkstack呼应 */
     lua_assert(ci->top <= L->stack_last);
     ci->nresults = nresults;
@@ -348,31 +371,21 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
 	// L->top已经在lvm中准备好了(call和vararg指令)
     n = (*curr_func(L)->c.f)(L);  /* do the actual call */
     lua_lock(L);
-    if (n < 0)  /* yielding? */
+    if (n < 0)  /* yielding, co调用yield，co.yeild运行完毕了,co.yeild还不能释放ci-list信息，需等到母thread调用resume，将控制权转移到co，再在co.resume中luaD_poscall()才释放 */
       return PCRYIELD;
     else {
-      luaD_poscall(L, L->top - n);
+      luaD_poscall(L, L->top - n);	/* 调整子C函数的返回值到指定位置并适配母函数的wanted(results) */
       return PCRC;
     }
   }
 }
 
-
-static StkId callrethooks (lua_State *L, StkId firstResult) {
-  ptrdiff_t fr = savestack(L, firstResult);  /* next call may change stack */
-  luaD_callhook(L, LUA_HOOKRET, -1);
-  if (f_isLua(L->ci)) {  /* Lua function? */
-    while ((L->hookmask & LUA_MASKRET) && L->ci->tailcalls--) /* tail calls */
-      luaD_callhook(L, LUA_HOOKTAILRET, -1);
-  }
-  return restorestack(L, fr);
-}
-
 /* 函数调用结束后，处理实际返回值和期待返回值的匹配问题
-** 也处理ci链的嵌套逻辑（本层ci结束往后退一层
+** 也处理ci链的嵌套逻辑（本层ci结束往后退一层)
 **
 ** 即处理C函数调用,也处理Lua函数执行结束即将返回这两种情况
 ** 没有检测C函数说返回了n个参数，当实际上没有返回那么多参数的情况
+** RETURNS: wanted.cnt: 0:返回多个参数，1：返回0个，2：返回1个。。。
 */
 int luaD_poscall (lua_State *L, StkId firstResult) {
   StkId res;
@@ -392,9 +405,11 @@ int luaD_poscall (lua_State *L, StkId firstResult) {
   while (i-- > 0)
     setnilvalue(res++);	/* local a, b, c = funcA(...), 针对 funcA的返回值不够则补nil */
 
-  /* C调用这句好理解,Lua调用可能在其它地方做了调整(RETURN那里调整了) 
+  /*
   ** L->top恢复到最后一个返回参数在stack的位置，这里和调用函数之前，
   ** 将L->top设置到最后一个传入参数在stack的位置相呼应了！！！
+  ** 
+  ** 最终将L->top恢复到ci->top是由“OP_CALL”指令负责
   */
   L->top = res;	
   return (wanted - LUA_MULTRET);  /* 0 iff wanted == LUA_MULTRET */
@@ -415,34 +430,36 @@ void luaD_call (lua_State *L, StkId func, int nResults) {
       luaD_throw(L, LUA_ERRERR);  /* error while handing stack error */
   }
   if (luaD_precall(L, func, nResults) == PCRLUA)  /* is a Lua function? */
-    luaV_execute(L, 1);  /* call it */
+    luaV_execute(L, 1);  /* call it, 这里的1是真的妙啊 */
   L->nCcalls--;
   luaC_checkGC(L);
 }
 
-
+/* 协程co开始执行co.resume 母thread在lbaselib.auxresume()中交出CPU，等待子co返回 */
 static void resume (lua_State *L, void *ud) {
   StkId firstArg = cast(StkId, ud);	/* 没有传参时firstArg指向top,下面的firstArg>L->base还是成立 */
   CallInfo *ci = L->ci;
   if (L->status == 0) {  /* start coroutine? */
-    lua_assert(ci == L->base_ci && firstArg > L->base);
+    lua_assert(ci == L->base_ci);	/* 尚未有任何调用链ci生成(或co已运行完毕) */
+	  lua_assert(firstArg > L->base);	/* 至少还有个参数(是co.fun),意味着不是co运行完毕的状态，运行完毕后不能调用本函数了，co.fun都没有了，ci也是空的，ro不知道该怎么运行了不是 */
+    /* 若是崭新的co第一次开始运行resume,则会生成相应的ci（co.initFun),再运行起来和普通的c.main中构建一个thread后第一次运行是一样的 */
     if (luaD_precall(L, firstArg - 1, LUA_MULTRET) != PCRLUA)
-      return;
-  }
-  else {  /* resuming from previous yield */
-    lua_assert(L->status == LUA_YIELD);
-    L->status = 0;
-    if (!f_isLua(ci)) {  /* `common' yield? */
+        return;
+  } else {  /* resuming from previous yield */
+    lua_assert(L->status == LUA_YIELD);	/* 非YEILD状态，不能调用resume */
+    L->status = 0;	/* switch back status */
+    if (!f_isLua(ci)) {  /* `common' yield? ci这里指向的是baselib.yield */
       /* finish interrupted execution of `OP_CALL' */
       lua_assert(GET_OPCODE(*((ci-1)->savedpc - 1)) == OP_CALL ||
                  GET_OPCODE(*((ci-1)->savedpc - 1)) == OP_TAILCALL);
-      if (luaD_poscall(L, firstArg))  /* complete it... */
-        L->top = L->ci->top;  /* and correct top if not multiple results */
+      if (luaD_poscall(L, firstArg))  /* complete it... 结束上述说的baselib.yield的调用流程 */
+        L->top = L->ci->top;  /* and correct top if not multiple results,如果是 multiple results则由跟在后面的vararg或者setlist来调整L->top(他们还需要用到L->top来确定传入参数的个数呢,所以这里不能将其恢复到L->ci->top，) */
     }
     else  /* yielded inside a hook: just continue its execution */
       L->base = L->ci->base;
   }
-  luaV_execute(L, cast_int(L->ci - L->base_ci));
+  
+  luaV_execute(L, cast_int(L->ci - L->base_ci));	/* 这里的nexeccalls值得好好推导一下 */
 }
 
 
@@ -466,8 +483,7 @@ LUA_API int lua_resume (lua_State *L, int nargs) {
   lua_assert(L->errfunc == 0);
   L->baseCcalls = ++L->nCcalls;
   /* 必须protected状态下call，不然协程出错，整个进程都会被关闭 
-  ** 这里没有在协程中新生成ci链,但原始的state中有调用resume的ci链
-  ** resume函数链中对协程新生成了ci链（如果是第一次resume）
+  ** 本函数还没有为co生成ci链,resume中会生成co的ci调用链（如果是第一次resume）
   */
   status = luaD_rawrunprotected(L, resume, L->top - nargs);	
   if (status != 0) {  /* error? */
@@ -493,7 +509,7 @@ LUA_API int lua_yield (lua_State *L, int nresults) {
   L->base = L->top - nresults;  /* protect stack slots below */
   L->status = LUA_YIELD;
   lua_unlock(L);
-  return -1;
+  return -1;	/* note:这是一个特殊的值，用于标识从yield返回 */
 }
 
 /* old_top 指向被调用函数slot 
