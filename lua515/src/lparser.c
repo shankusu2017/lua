@@ -1,3 +1,4 @@
+/* 参考的BNF地址 shankusu.me/lua/TheCompleteSyntaxOfLua51/ */
 /*
 ** $Id: lparser.c,v 2.42.1.4 2011/10/21 19:31:42 roberto Exp $
 ** Lua Parser
@@ -6,6 +7,7 @@
 
 
 #include <string.h>
+#include <stdio.h>
 
 #define lparser_c
 #define LUA_CORE
@@ -29,8 +31,10 @@
 
 #define hasmultret(k)		((k) == VCALL || (k) == VVARARG)
 
+/* i:当前活跃的locvar的索引 */
 #define getlocvar(fs, i)	((fs)->f->locvars[(fs)->actvar[i]])
 
+/* 检查value是否超过了limit限制,超过则报错msg */
 #define luaY_checklimit(fs,v,l,m)	if ((v)>(l)) errorlimit(fs,l,m)
 
 
@@ -86,7 +90,7 @@ static int testnext (LexState *ls, int c) {
   else return 0;
 }
 
-
+/* 检查当前c是否为特定的token'Type */
 static void check (LexState *ls, int c) {
   if (ls->t.token != c)
     error_expected(ls, c);
@@ -114,20 +118,20 @@ static void check_match (LexState *ls, int what, int who, int where) {
   }
 }
 
-
+/* 强制检查并当前token的type为TK_NAME，返回当前token，读取下一个token */
 static TString *str_checkname (LexState *ls) {
   TString *ts;
-  check(ls, TK_NAME);
-  ts = ls->t.seminfo.ts;
-  luaX_next(ls);
+  check(ls, TK_NAME);		/* 当前token'type必须是TK_NAME的类型 */
+  ts = ls->t.seminfo.ts;	/* 提取token的值 */
+  luaX_next(ls);			/* 继续读下一个token */
   return ts;
 }
 
 
 static void init_exp (expdesc *e, expkind k, int i) {
-  e->f = e->t = NO_JUMP;
-  e->k = k;
-  e->u.s.info = i;
+  e->f = e->t = NO_JUMP;	
+  e->k = k;			/* 表达式类型 */
+  e->u.s.info = i;	/* 代表的意思随k的变化而变化 */
 }
 
 
@@ -140,15 +144,24 @@ static void checkname(LexState *ls, expdesc *e) {
   codestring(ls, e, str_checkname(ls));
 }
 
-
+/* 
+** 填充一个全新的 Locvar信息到 Proto.locvars (供调试用)
+*/
 static int registerlocalvar (LexState *ls, TString *varname) {
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
   int oldsize = f->sizelocvars;
+
+  /* 空间不足则扩大 */
   luaM_growvector(ls->L, f->locvars, fs->nlocvars, f->sizelocvars,
                   LocVar, SHRT_MAX, "too many local variables");
-  while (oldsize < f->sizelocvars) f->locvars[oldsize++].varname = NULL;
-  f->locvars[fs->nlocvars].varname = varname;
+  
+  while (oldsize < f->sizelocvars)	/* locvars数组扩大则将新增的slot填NULL */
+  	f->locvars[oldsize++].varname = NULL;
+  
+  /* 更新locvar信息 *, startPC,endPC暂时还不确定 */
+  f->locvars[fs->nlocvars].varname = varname; 
+  /* printf("registerlocalvar: idx(%d), name(%p)\n", fs->nlocvars, varname); */
   luaC_objbarrier(ls->L, f, varname);
   return fs->nlocvars++;
 }
@@ -157,17 +170,25 @@ static int registerlocalvar (LexState *ls, TString *varname) {
 #define new_localvarliteral(ls,v,n) \
   new_localvar(ls, luaX_newstring(ls, "" v, (sizeof(v)/sizeof(char))-1), n)
 
-
+/* KEYCODE
+** 注册一个本地变量信息到 Proto.locvars ,
+** 填充变量名, startpc,endpc稍后再处理
+**
+*/
 static void new_localvar (LexState *ls, TString *name, int n) {
   FuncState *fs = ls->fs;
   luaY_checklimit(fs, fs->nactvar+n+1, LUAI_MAXVARS, "local variables");
+  /* 设置actvar 到 Proto.nlocvars 的映射 */
   fs->actvar[fs->nactvar+n] = cast(unsigned short, registerlocalvar(ls, name));
 }
 
-
+/* 
+** 更新!!! FunState.nactvar 数量，更新 Proto.locvars.startpc 
+** 一次性生成多个locvar时，nvars可以告诉本函数方便一次性调整到位
+*/
 static void adjustlocalvars (LexState *ls, int nvars) {
   FuncState *fs = ls->fs;
-  fs->nactvar = cast_byte(fs->nactvar + nvars);
+  fs->nactvar = cast_byte(fs->nactvar + nvars);	/* 更新fs中当前激活的locvar数量 */
   for (; nvars; nvars--) {
     getlocvar(fs, fs->nactvar - nvars).startpc = fs->pc;
   }
@@ -326,15 +347,19 @@ static void pushclosure (LexState *ls, FuncState *func, expdesc *v) {
   }
 }
 
-
+/* 开始编译函数 */
 static void open_func (LexState *ls, FuncState *fs) {
   lua_State *L = ls->L;
+  
+  fs->L = L;	
   Proto *f = luaF_newproto(L);
-  fs->f = f;
+  fs->ls = ls;	/* funState 属于哪一个LexState */
+  fs->f = f;	/* funState 在编译哪个Proto */
+  
+  /* ls指向最新的一个FuncState,这里可以猜测，只有先编译完了子函数才有可能编译父函数 */
   fs->prev = ls->fs;  /* linked list of funcstates */
-  fs->ls = ls;
-  fs->L = L;
   ls->fs = fs;
+  
   fs->pc = 0;
   fs->lasttarget = -1;
   fs->jpc = NO_JUMP;
@@ -347,11 +372,15 @@ static void open_func (LexState *ls, FuncState *fs) {
   f->source = ls->source;
   f->maxstacksize = 2;  /* registers 0/1 are always valid */
   fs->h = luaH_new(L, 0, 0);
-  /* anchor table of constants and prototype (to avoid being collected) */
+  
+  /* anchor table of constants and prototype (to avoid being collected)
+  ** 常量和原型的锚表（避免被收集）
+  */
   sethvalue2s(L, L->top, fs->h);
-  incr_top(L);
+  incr_top(L);	/* 放到堆栈上可避免被gc,如果编译失败stack回缩，则可自动被gc（没有被其它obj引用的话 ） */
   setptvalue2s(L, L->top, f);
   incr_top(L);
+  
 }
 
 
@@ -384,18 +413,28 @@ static void close_func (LexState *ls) {
 
 Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
   struct LexState lexstate;
-  struct FuncState funcstate;
+  struct FuncState funcstate;	/* mainFunc */
+  
   lexstate.buff = buff;
+  /* 设置input信息，但，buff在上面就设置了，有点意思吧，z和buff对于lexState是有点不同的 */
   luaX_setinput(L, &lexstate, z, luaS_new(L, name));
+
+  /* 一个lua文件，编译模块将其当做一个函数来看待
+  ** 函数原型 function (...)
+  **          end
+  **
+  ** BNF funcbody ::= `(´ [parlist] `)´ block end
+  */
   open_func(&lexstate, &funcstate);
-  funcstate.f->is_vararg = VARARG_ISVARARG;  /* main func. is always vararg */
+  funcstate.f->is_vararg = VARARG_ISVARARG;  /* main func. is always vararg，哈哈知道lua文件一般开头的local modName=...的语法支撑了吧 */
   luaX_next(&lexstate);  /* read first token */
   chunk(&lexstate);
   check(&lexstate, TK_EOS);
   close_func(&lexstate);
-  lua_assert(funcstate.prev == NULL);
-  lua_assert(funcstate.f->nups == 0);
-  lua_assert(lexstate.fs == NULL);
+  
+  lua_assert(lexstate.fs == NULL);		/* lexstate下不应该还有未编译完的funState了 */
+  lua_assert(funcstate.prev == NULL);	/* 已编译完的主函数上面还有其它函数，不可能的嘛 */
+  lua_assert(funcstate.f->nups == 0);	/* 编译结束，主函数不应该有nups了 */
   return funcstate.f;
 }
 
@@ -541,7 +580,9 @@ static void constructor (LexState *ls, expdesc *t) {
 /* }====================================================================== */
 
 
-
+/* 
+** 解析函数的显式形参列表（对于modName:sub(x,y) 这种隐含的第一个self参数，在外面已被解析完毕
+*/
 static void parlist (LexState *ls) {
   /* parlist -> [ param { `,' param } ] */
   FuncState *fs = ls->fs;
@@ -553,6 +594,7 @@ static void parlist (LexState *ls) {
       switch (ls->t.token) {
         case TK_NAME: {  /* param -> NAME */
           new_localvar(ls, str_checkname(ls), nparams++);
+		  /* adjustlocalvars 在下面调用：一次性调整到位 */
           break;
         }
         case TK_DOTS: {  /* param -> `...' */
@@ -567,24 +609,38 @@ static void parlist (LexState *ls) {
         }
         default: luaX_syntaxerror(ls, "<name> or " LUA_QL("...") " expected");
       }
-    } while (!f->is_vararg && testnext(ls, ','));
+    } while (!f->is_vararg && testnext(ls, ','));	/* 这里看得出来 ... 只能是最后一个形参 */
+  }else {
+  	// function name() body end 显式形参为空
   }
+  
   adjustlocalvars(ls, nparams);
   f->numparams = cast_byte(fs->nactvar - (f->is_vararg & VARARG_HASARG));
   luaK_reserveregs(fs, fs->nactvar);  /* reserve register for parameters */
 }
 
-
+/* 解析函数形参和函数体 */
 static void body (LexState *ls, expdesc *e, int needself, int line) {
   /* body ->  `(' parlist `)' chunk END */
   FuncState new_fs;
+  
+  /* 更新ls中的fs变量，完成编译对象的切换 */
   open_func(ls, &new_fs);
+  
+  /* 新函数从哪一方开始定义 */
   new_fs.f->linedefined = line;
+  
+  /* local name = function () 或者 local function name() 这两种函数定义格式对应的函数都是从‘(’开始，*/
   checknext(ls, '(');
-  if (needself) {
+
+  /* 这里看得出来self将是本fs的第一个locvar，占用一个正常的locvar
+  ** Proto.numparams 中也包含self
+  */
+  if (needself) {	/* 处理 function modName:sub() body end 这种情况，参考funcname()代码可知 */
     new_localvarliteral(ls, "self", 0);
     adjustlocalvars(ls, 1);
   }
+  
   parlist(ls);
   checknext(ls, ')');
   chunk(ls);
@@ -870,9 +926,13 @@ static void expr (LexState *ls, expdesc *v) {
 ** =======================================================================
 */
 
+/* repeat
+**   statements
+** until( condition )
+*/
 
 static int block_follow (int token) {
-  switch (token) {
+  switch (token) {	/* END和EOS还没理解 */
     case TK_ELSE: case TK_ELSEIF: case TK_END:
     case TK_UNTIL: case TK_EOS:
       return 1;
@@ -1168,12 +1228,24 @@ static void ifstat (LexState *ls, int line) {
 static void localfunc (LexState *ls) {
   expdesc v, b;
   FuncState *fs = ls->fs;
+  
+  /* local function funA(...) end 
+  ** 注册locvar(函数名)到Proto.nlocvars,填充name信息，建立fs->actvar[fs->nactvars]到p.nlocvars的映射
+  */
   new_localvar(ls, str_checkname(ls), 0);
+  
+  /* 给表达式填个初值先 */
   init_exp(&v, VLOCAL, fs->freereg);
-  luaK_reserveregs(fs, 1);
+  
+  /* 上面新增了一个locvar,用掉了一个freereg，这里扩大点maxstacksize, 更新freereg */
+  luaK_reserveregs(fs, 1);	/* reserve reg:准备寄存器 */
+
+  /* 更新fs->nactvar, 填充上面新增的p.nlocvars变量的startpc */
   adjustlocalvars(ls, 1);
+  
   body(ls, &b, 0, ls->linenumber);
   luaK_storevar(fs, &v, &b);
+  
   /* debug information will only see the variable after this point! */
   getlocvar(fs, fs->nactvar - 1).startpc = fs->pc;
 }
@@ -1205,7 +1277,7 @@ static int funcname (LexState *ls, expdesc *v) {
   while (ls->t.token == '.')
     field(ls, v);
   if (ls->t.token == ':') {
-    needself = 1;
+    needself = 1;	/* 需要给函数添加一个self参数 eg:           function modName:sub () body end */
     field(ls, v);
   }
   return needself;
@@ -1303,7 +1375,11 @@ static int statement (LexState *ls) {
     case TK_LOCAL: {  /* stat -> localstat */
       luaX_next(ls);  /* skip LOCAL */
       if (testnext(ls, TK_FUNCTION))  /* local function? */
-        localfunc(ls);
+	  	/*
+	  	** local function funName()
+	  	** end
+	  	*/
+        localfunc(ls);	
       else
         localstat(ls);
       return 0;

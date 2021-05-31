@@ -540,12 +540,12 @@ LUALIB_API void luaL_unref (lua_State *L, int t, int ref) {
 */
 
 typedef struct LoadF {
-  int extraline;
-  FILE *f;
-  char buff[LUAL_BUFFERSIZE];
+  int extraline;	/* 文件开头是否包含额外的第一行 */
+  FILE *f;			/* 对应文件的句柄 */
+  char buff[LUAL_BUFFERSIZE]; /* 给C系统库函数read用的buf,避免每次read都alloc */
 } LoadF;
 
-
+/* 读取指定文件到buf并返回size给上层业务逻辑 */
 static const char *getF (lua_State *L, void *ud, size_t *size) {
   LoadF *lf = (LoadF *)ud;
   (void)L;
@@ -554,7 +554,8 @@ static const char *getF (lua_State *L, void *ud, size_t *size) {
     *size = 1;
     return "\n";
   }
-  if (feof(lf->f)) return NULL;
+  if (feof(lf->f)) return NULL;	/* 已读取完毕 */
+  /* size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream); */
   *size = fread(lf->buff, 1, sizeof(lf->buff), lf->f);
   return (*size > 0) ? lf->buff : NULL;
 }

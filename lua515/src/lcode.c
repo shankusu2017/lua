@@ -195,20 +195,22 @@ void luaK_concat (FuncState *fs, int *l1, int l2) {
   }
 }
 
-
+/* 调整maxstacksize已匹配locvar的数量 */
 void luaK_checkstack (FuncState *fs, int n) {
   int newstack = fs->freereg + n;
-  if (newstack > fs->f->maxstacksize) {
+  if (newstack > fs->f->maxstacksize) {	/* 这个判断是必须的 */
     if (newstack >= MAXSTACK)
       luaX_syntaxerror(fs->ls, "function or expression too complex");
     fs->f->maxstacksize = cast_byte(newstack);
   }
 }
 
-
+/* reserve reg:预定 寄存器 实际上是占用n个寄存器的意思
+** freereg+=n，调整maxstatcksize至相同至
+*/
 void luaK_reserveregs (FuncState *fs, int n) {
   luaK_checkstack(fs, n);
-  fs->freereg += n;
+  fs->freereg += n;	/* 占用n个locvar,释放则n为负值或在其它函数中实现 */
 }
 
 

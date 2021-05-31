@@ -512,8 +512,8 @@ LUA_API int lua_yield (lua_State *L, int nresults) {
   return -1;	/* note:这是一个特殊的值，用于标识从yield返回 */
 }
 
-/* old_top 指向被调用函数slot 
-** KEYCODE
+/* 
+** old_top 指向被调用函数slot 
 */
 int luaD_pcall (lua_State *L, Pfunc func, void *u,
                 ptrdiff_t old_top, ptrdiff_t ef) {
@@ -548,11 +548,13 @@ int luaD_pcall (lua_State *L, Pfunc func, void *u,
 
 /*
 ** Execute a protected parser.
+** 此结构体鸡肋，为满足luaD_pcall函数调用的原型要求而增
+** 现实和理想的妥协才是真正的生活，才是工业级的代码的常态，不要只有学院派的圆满哦，现实是复杂多变的。
 */
 struct SParser {  /* data to `f_parser' */
-  ZIO *z;
-  Mbuffer buff;  /* buffer to be used by the scanner */
-  const char *name;
+  ZIO *z;			/* 底层的io句柄(C++称为对象) */
+  Mbuffer buff;  	/* buffer to be used by the scanner */
+  const char *name;	/* chunk name */
 };
 
 static void f_parser (lua_State *L, void *ud) {

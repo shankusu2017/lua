@@ -48,6 +48,7 @@ void luaS_resize (lua_State *L, int newsize) {
 
 /* 不像lua5.3,此版本不区分长/短字符串 
 ** 字符串做了序列化(唯一)处理，且没有保存在global_state->gc列表上 
+** l:不包含结尾的\0 
 */
 static TString *newlstr (lua_State *L, const char *str, size_t l,
                                        unsigned int h) {

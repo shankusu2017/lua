@@ -17,7 +17,7 @@
 #include "lstate.h"
 #include "lzio.h"
 
-
+/* 通过reader句柄读数据到zio，并返回新的第一个int */
 int luaZ_fill (ZIO *z) {
   size_t size;
   lua_State *L = z->L;
@@ -25,15 +25,15 @@ int luaZ_fill (ZIO *z) {
   lua_unlock(L);
   buff = z->reader(L, z->data, &size);
   lua_lock(L);
-  if (buff == NULL || size == 0) return EOZ;
+  if (buff == NULL || size == 0) return EOZ;	/* 文件已读取完毕 */
   z->n = size - 1;
   z->p = buff;
   return char2int(*(z->p++));
 }
 
-
+/* 从zio向前看一个int */
 int luaZ_lookahead (ZIO *z) {
-  if (z->n == 0) {
+  if (z->n == 0) {	/* io空，则从文件面新读一部分 */
     if (luaZ_fill(z) == EOZ)
       return EOZ;
     else {
@@ -44,11 +44,12 @@ int luaZ_lookahead (ZIO *z) {
   return char2int(*z->p);
 }
 
-
+/* 初始化ZIO的相关域，但尚未从OS读取数据 */
 void luaZ_init (lua_State *L, ZIO *z, lua_Reader reader, void *data) {
   z->L = L;
   z->reader = reader;
   z->data = data;
+  
   z->n = 0;
   z->p = NULL;
 }

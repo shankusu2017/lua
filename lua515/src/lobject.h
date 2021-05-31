@@ -237,27 +237,39 @@ typedef union Udata {
 
 /*
 ** Function Prototypes
+** 下面的域的排序经过了整理（相关的放在一起），原始代码则是类型相同的放一起(节省MEM考虑吧)
 */
 typedef struct Proto {
   CommonHeader;
-  TValue *k;  /* constants used by the function */
-  Instruction *code;	/* 指向存放指令数组的指针 */
-  struct Proto **p;  /* functions defined inside the function */
-  int *lineinfo;  /* map from opcodes to source lines,   lineinfo[code.idx]->code.fileLine */
-  struct LocVar *locvars;  /* information about local variables */
-  TString **upvalues;  /* upvalue names： upvalues的名字的数组 */
-  TString  *source;	/* 所在源文件的带路径的文件名 */
-  int sizeupvalues;
-  int sizek;  /* size of `k' */
-  int sizecode;
-  int sizelineinfo;
-  int sizep;  /* size of `p' */
-  int sizelocvars;
-  int linedefined;	// 函数起始/结束所在的文件行数
+  
+  TString  *source;		/* 所在源文件的带路径的文件名 */
+  int linedefined;		/* 函数起始/结束所在的文件行数 */
   int lastlinedefined;
+  
+  Instruction *code;	/* 指向存放指令数组的指针 */
+  int sizecode;
+  
+  int *lineinfo;  		/* map from opcodes to source lines,   lineinfo[code.idx]->code.fileLine */
+  int sizelineinfo;
+  
+  struct Proto **p;  	/* functions defined inside the function */
+  int sizep;  			/* size of `p' */
+  
+  TValue *k;  			/* constants used by the function */
+  int sizek;  			/* size of `k' */
+
+  /* 可参考 FuncState.nlocvars 注释 */
+  struct LocVar *locvars;  /* information about local variables */
+  int sizelocvars;		   /* 申请的数组的整个大小（once'max?）（当前已被使用的数量在 FuncState nlocvars 域中,当整个数组被使用完毕时，回扩大） */
+  
+  TString **upvalues;  	/* upvalue names： upvalues的名字的数组 */
+  int sizeupvalues;
+  lu_byte nups;  		/* number of upvalues */
+  
+  
   GCObject *gclist;
-  lu_byte nups;  /* number of upvalues */
-  lu_byte numparams;	/* 函数原型中定长参数个数 funA(a,b,...)->2, funB(...)->0, funC(a)->1            */
+  
+  lu_byte numparams;	/* 函数原型中定长参数个数 funA(a,b,...)->2, funB(...)->0, funC(a)->1, 如果包含隐式的self参数，那也算一个形参            */
   lu_byte is_vararg;	/* 不定长函数funB(a,...)但凡定义中有...的则是不定长参数，反之则不是 */
   
   /* 编译过程计算得到：本proto需用到的local'var的数量的最大值
@@ -269,9 +281,9 @@ typedef struct Proto {
 
 
 /* masks for new-style vararg */
-#define VARARG_HASARG		1
-#define VARARG_ISVARARG		2
-#define VARARG_NEEDSARG		4
+#define VARARG_HASARG		1	/* 兼容旧版本的函数形参...转为名为arg表的格式？ */
+#define VARARG_ISVARARG		2	/* 是变参函数 */
+#define VARARG_NEEDSARG		4	/* 兼容旧版本的函数形参...转为名为arg表的格式？ */
 
 
 typedef struct LocVar {

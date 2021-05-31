@@ -472,7 +472,7 @@
 
 /*
 @@ LUAI_MAXVARS is the maximum number of local variables per function
-@* (must be smaller than 250).
+@* (must be smaller than 250，操作码中的localvar的数量的硬性限制).
 */
 #define LUAI_MAXVARS		200
 

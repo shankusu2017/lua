@@ -869,13 +869,14 @@ LUA_API int lua_cpcall (lua_State *L, lua_CFunction func, void *ud) {
   return status;
 }
 
-
+/* data: LoadF for lua_Reader */
 LUA_API int lua_load (lua_State *L, lua_Reader reader, void *data,
                       const char *chunkname) {
   ZIO z;
   int status;
   lua_lock(L);
-  if (!chunkname) chunkname = "?";
+  if (!chunkname) 
+  	chunkname = "?";	/* 默认名 */
   luaZ_init(L, &z, reader, data);
   status = luaD_protectedparser(L, &z, chunkname);
   lua_unlock(L);

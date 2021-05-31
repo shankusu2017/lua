@@ -64,52 +64,68 @@
 -- -- a = 1
 -- -- setfenv(1, {})
 
-local function l_fun4(...)
+-- local function l_fun4(...)
 	
-end
+-- end
 
-local function l_fun3(...)
-	l_fun4(...)
-end
+-- local function l_fun3(...)
+-- 	l_fun4(...)
+-- end
 
-local function l_fun2(...)
-	l_fun3(...)
-end
+-- local function l_fun2(...)
+-- 	l_fun3(...)
+-- end
 
-local function l_fun(...)
-	l_fun2(...)
-end
+-- local function l_fun(...)
+-- 	l_fun2(...)
+-- end
 
-function g_lua2(a, ...)
-	-- l_fun(...)
-	print("i' g_lua2 ")
-	-- print("call c'fun")
-	-- t_fun_c()
-	return
-end
+-- function g_lua2(a, ...)
+-- 	-- l_fun(...)
+-- 	print("i' g_lua2 ")
+-- 	-- print("call c'fun")
+-- 	-- t_fun_c()
+-- 	return
+-- end
 
+-- local function e1()
+-- 	local a = "a"
+-- 	local b = 1
+-- 	local c = a + b
+-- end
 
+-- local function e2()
+-- 	e1()
+-- end
 
+-- local function e3()
+-- 	e2()
+-- end
 
-local function e1()
-	local a = "a"
-	local b = 1
-	local c = a + b
-end
-local function e2()
-	e1()
-end
+-- function g_lua()
+-- 	-- l_fun(...)
+-- 	print("i' g_lua ")
+-- 	-- print("call c'fun")
+-- 	-- t_fun_c()
+-- 	e3()
+-- end
 
-local function e3()
-	e2()
-end
+-- do
+-- 	local v1, v2, v3, v4, v5, v6
+-- end
 
-function g_lua()
-	-- l_fun(...)
-	print("i' g_lua ")
-	-- print("call c'fun")
-	-- t_fun_c()
-	e3()
+-- do
+-- 	local v1, v2, v3, v4, v5, v6
+-- end
+
+-- do
+-- 	local v1, v2, v3, v4, v5, v6
+-- end
+
+local t = {}
+
+function t:fun(a, b, c)
+
 end
 
 -- print("opcode exe done")

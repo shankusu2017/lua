@@ -78,7 +78,16 @@ int t_exe_lua(lua_State *vm) {
     }
 }
 
+// void pp(int cnt) {
+//     printf("cnt:%d");
+// }
+
 int main(int argc, char *argv[]) {
+    // {
+    //     int cnt = 0;
+    //     pp(cnt++);
+    //     pp(cnt++);
+    // }
     char buf[80];   
     getcwd(buf,sizeof(buf));   
     printf("cwd: %s\n", buf);   
@@ -123,15 +132,15 @@ int main(int argc, char *argv[]) {
         // lua_pushnumber(vm, 1);
         // ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
    }
-   ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
-   if (0 != ret) {
-       char  errmsg [1024];
-       size_t errLen;
-       printf("call fail, ret(%d). err(%s)", ret, luaL_optlstring(vm, -1, "nil", &errLen));
-       return -2;
-   }
+//    ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
+//    if (0 != ret) {
+//        char  errmsg [1024];
+//        size_t errLen;
+//        printf("call fail, ret(%d). err(%s)", ret, luaL_optlstring(vm, -1, "nil", &errLen));
+//        return -2;
+//    }
 
-   t_exe_lua(vm);
+//    t_exe_lua(vm);
 
     //t_db(vm);
 }

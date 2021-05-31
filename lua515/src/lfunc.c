@@ -95,7 +95,7 @@ void luaF_freeupval (lua_State *L, UpVal *uv) {
   luaM_free(L, uv);  /* free upvalue */
 }
 
-
+/* level指代L->stack‘某个slot，下面的函数也容易看懂 */
 void luaF_close (lua_State *L, StkId level) {
   UpVal *uv;
   global_State *g = G(L);
@@ -114,7 +114,7 @@ void luaF_close (lua_State *L, StkId level) {
   }
 }
 
-
+/* 构造一个proto,用于编译系统 */
 Proto *luaF_newproto (lua_State *L) {
   Proto *f = luaM_new(L, Proto);
   luaC_link(L, obj2gco(f), LUA_TPROTO);
