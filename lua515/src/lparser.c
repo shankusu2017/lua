@@ -105,12 +105,15 @@ static void checknext (LexState *ls, int c) {
 #define check_condition(ls,c,msg)	{ if (!(c)) luaX_syntaxerror(ls, msg); }
 
 
-
+/* 在where(line)这里，who(TK.1)需要一个what(TK.2)匹配
+** eg: function 需要一个end来结束函数定义
+*/
 static void check_match (LexState *ls, int what, int who, int where) {
   if (!testnext(ls, what)) {
-    if (where == ls->linenumber)
+    if (where == ls->linenumber)	/* 当前行，那就不需要打印line信息了？ */
       error_expected(ls, what);
     else {
+		/* 输出连带line信息的错误信息 */
       luaX_syntaxerror(ls, luaO_pushfstring(ls->L,
              LUA_QS " expected (to close " LUA_QS " at line %d)",
               luaX_token2str(ls, what), luaX_token2str(ls, who), where));
@@ -188,13 +191,21 @@ static void new_localvar (LexState *ls, TString *name, int n) {
 */
 static void adjustlocalvars (LexState *ls, int nvars) {
   FuncState *fs = ls->fs;
-  fs->nactvar = cast_byte(fs->nactvar + nvars);	/* 更新fs中当前激活的locvar数量 */
+  
+  /* 更新fs中当前激活的locvar数量 */
+   /* 更新fs中当前激活的locvar数量 */
+   /* 更新fs中当前激活的locvar数量 */
+  fs->nactvar = cast_byte(fs->nactvar + nvars);	
+  
   for (; nvars; nvars--) {
     getlocvar(fs, fs->nactvar - nvars).startpc = fs->pc;
+	/* 对应的chunk结束时，再更新endpc信息，也只有那个时候才能确切的知道endpc */
   }
 }
 
-
+/* 确定一批actvar的endpc 
+** 仔细看这个函数，很有意思哈（结合 new_localvar adjustlocalvars 一起看 ）
+*/
 static void removevars (LexState *ls, int tolevel) {
   FuncState *fs = ls->fs;
   while (fs->nactvar > tolevel)
@@ -388,24 +399,38 @@ static void close_func (LexState *ls) {
   lua_State *L = ls->L;
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
+
+  /* 关闭还处于激活状态的actvar */
   removevars(ls, 0);
+
+  /* 自动补一个 OP_RETURN 指令 */
   luaK_ret(fs, 0, 0);  /* final return */
+  
   luaM_reallocvector(L, f->code, f->sizecode, fs->pc, Instruction);
   f->sizecode = fs->pc;
+  
   luaM_reallocvector(L, f->lineinfo, f->sizelineinfo, fs->pc, int);
   f->sizelineinfo = fs->pc;
+  
   luaM_reallocvector(L, f->k, f->sizek, fs->nk, TValue);
   f->sizek = fs->nk;
+  
   luaM_reallocvector(L, f->p, f->sizep, fs->np, Proto *);
   f->sizep = fs->np;
+  
   luaM_reallocvector(L, f->locvars, f->sizelocvars, fs->nlocvars, LocVar);
   f->sizelocvars = fs->nlocvars;
+  
   luaM_reallocvector(L, f->upvalues, f->sizeupvalues, f->nups, TString *);
   f->sizeupvalues = f->nups;
+  
   lua_assert(luaG_checkcode(f));
   lua_assert(fs->bl == NULL);
+  
+  /* 本子函数编译完毕，切换到母函数中去 */
   ls->fs = fs->prev;
-  /* last token read was anchored in defunct function; must reanchor it */
+  
+  /* last token read was anchored(锚定) in defunct function; must reanchor(锚) it */
   if (fs) anchor_token(ls);
   L->top -= 2;  /* remove table and prototype from the stack */
 }
@@ -640,13 +665,20 @@ static void body (LexState *ls, expdesc *e, int needself, int line) {
     new_localvarliteral(ls, "self", 0);
     adjustlocalvars(ls, 1);
   }
-  
+  /* 解析显式形参 */
   parlist(ls);
+  
   checknext(ls, ')');
+  
   chunk(ls);
+  
+  /* 函数定义结束于哪一行 */
   new_fs.f->lastlinedefined = ls->linenumber;
+  
   check_match(ls, TK_END, TK_FUNCTION, line);
+  
   close_func(ls);
+  
   pushclosure(ls, &new_fs, e);
 }
 
