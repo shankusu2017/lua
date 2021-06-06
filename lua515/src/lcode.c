@@ -7,6 +7,8 @@
 
 #include <stdlib.h>
 
+#include <stdio.h>
+
 #define lcode_c
 #define LUA_CORE
 
@@ -23,25 +25,28 @@
 #include "lparser.h"
 #include "ltable.h"
 
-
+/* e的类型 expdesc */
 #define hasjumps(e)	((e)->t != (e)->f)
 
-
+/* 仅仅e->k == VKNUM 还不够么？ */
 static int isnumeral(expdesc *e) {
   return (e->k == VKNUM && e->t == NO_JUMP && e->f == NO_JUMP);
 }
 
-/* 给一系列变量赋nil */
+/* 给连续的变量赋nil
+** OP_LOADNIL A B R(A) := ... := R(B) := nil
+** 当可以合并前一条OP_LOADNIL时则尝试合并，可以利用fun'stack的默认NIL时，直接用NIL
+*/
 void luaK_nil (FuncState *fs, int from, int n) {
   Instruction *previous;
   if (fs->pc > fs->lasttarget) {  /* no jumps to current position? */
     if (fs->pc == 0) {  /* function start? */
-      if (from >= fs->nactvar)
+      if (from >= fs->nactvar)  /* 新调用一个fun时，其私有stack默认会被置NULL，这种情况直接使用默认的NULL即可 */
         return;  /* positions are already clean */
     }
     else {
       previous = &fs->f->code[fs->pc-1];
-      if (GET_OPCODE(*previous) == OP_LOADNIL) {
+      if (GET_OPCODE(*previous) == OP_LOADNIL) {	/* 尝试合并前后连续的OP_LOADNIL指令 */
         int pfrom = GETARG_A(*previous);
         int pto = GETARG_B(*previous);
         if (pfrom <= from && from <= pto+1) {  /* can connect both? */
@@ -55,7 +60,10 @@ void luaK_nil (FuncState *fs, int from, int n) {
   luaK_codeABC(fs, OP_LOADNIL, from, from+n-1, 0);  /* else no optimization */
 }
 
-
+/* 无条件跳转
+** OP_JMP sBx PC += sBx
+** TODOLOOK
+*/
 int luaK_jump (FuncState *fs) {
   int jpc = fs->jpc;  /* save list of jumps to here */
   int j;
@@ -65,21 +73,24 @@ int luaK_jump (FuncState *fs) {
   return j;
 }
 
-
+/* 从函数返回
+** OP_RETURN A B return R(A), ... ,R(A+B-2)
+*/
 void luaK_ret (FuncState *fs, int first, int nret) {
   luaK_codeABC(fs, OP_RETURN, first, nret+1, 0);	/* 这里可以反推OP_RETURNS中A,B,C的含义了 */
 }
 
-
+/* 有条件跳转 OP_TEST, OP_TESTSET */
 static int condjump (FuncState *fs, OpCode op, int A, int B, int C) {
   luaK_codeABC(fs, op, A, B, C);
   return luaK_jump(fs);
 }
 
-
+/* 知道跳转指令pc的目的地dest之后，回填pc的sBx域 */
 static void fixjump (FuncState *fs, int pc, int dest) {
   Instruction *jmp = &fs->f->code[pc];
-  int offset = dest-(pc+1);
+  /* 下面计算跳转指令的跳转目标绝对值时也加了1，和这里是一致的 */
+  int offset = dest-(pc+1);		
   lua_assert(dest != NO_JUMP);
   if (abs(offset) > MAXARG_sBx)
     luaX_syntaxerror(fs->ls, "control structure too long");
@@ -96,7 +107,7 @@ int luaK_getlabel (FuncState *fs) {
   return fs->pc;
 }
 
-
+/* 获取跳转指令指向的绝对位置 */
 static int getjump (FuncState *fs, int pc) {
   int offset = GETARG_sBx(fs->f->code[pc]);
   if (offset == NO_JUMP)  /* point to itself represents end of list */
@@ -117,7 +128,7 @@ static Instruction *getjumpcontrol (FuncState *fs, int pc) {
 
 /*
 ** check whether list has any jump that do not produce a value
-** (or produce an inverted value)
+** (or produce an inverted(颠,倒) value)
 */
 static int need_value (FuncState *fs, int list) {
   for (; list != NO_JUMP; list = getjump(fs, list)) {
@@ -146,7 +157,7 @@ static void removevalues (FuncState *fs, int list) {
       patchtestreg(fs, list, NO_REG);
 }
 
-
+/* 将待跳转的列表上的指令的目标地址sBx修正到dst上 */
 static void patchlistaux (FuncState *fs, int list, int vtarget, int reg,
                           int dtarget) {
   while (list != NO_JUMP) {
@@ -181,7 +192,7 @@ void luaK_patchtohere (FuncState *fs, int list) {
   luaK_concat(fs, &fs->jpc, list);
 }
 
-/* 将一个新的跳转位置加入空悬跳转链表,l1:悬空列表的第一个元素，l2:待加入列表的元素 */
+/*  */
 void luaK_concat (FuncState *fs, int *l1, int l2) {
   if (l2 == NO_JUMP) return;
   else if (*l1 == NO_JUMP)	/* 当前跳转列表为空 */
@@ -195,7 +206,7 @@ void luaK_concat (FuncState *fs, int *l1, int l2) {
   }
 }
 
-/* 调整maxstacksize已匹配locvar的数量 */
+/* 调整maxstacksize以便匹配locvar的数量 */
 void luaK_checkstack (FuncState *fs, int n) {
   int newstack = fs->freereg + n;
   if (newstack > fs->f->maxstacksize) {	/* 这个判断是必须的 */
@@ -213,28 +224,39 @@ void luaK_reserveregs (FuncState *fs, int n) {
   fs->freereg += n;	/* 占用n个locvar,释放则n为负值或在其它函数中实现 */
 }
 
-
+/* 重点函数，需要细读 */
 static void freereg (FuncState *fs, int reg) {
-  if (!ISK(reg) && reg >= fs->nactvar) {
+  if (!ISK(reg) &&            /* 常量的就不用释放了，压根没占用reg */
+      reg >= fs->nactvar) {   /* reg从0开始，nactvar从1开始，所以这里reg>=fs->nactvar是可以的
+  	/* 释放一个reg后,reg==fs->freereg:确保只能释放最新一个被激活的reg(作为exp的临时reg占用？) */
     fs->freereg--;
     lua_assert(reg == fs->freereg);
   }
 }
 
-
+/* 
+** 如果exp对应的reg已确定，且占用了临时reg，则释放reg？
+** local a
+** local b = a
+** local c = fun(), d
+*/
 static void freeexp (FuncState *fs, expdesc *e) {
+  /* 对于第二行a作为exp且已经确定了是LOCVAR,那么它作为exp占用的临时reg就不需要了
+  ** 直接引用其locvar对应的reg即可，这里将作为exp临时占用的reg释放 
+  ** 另外一种情况就是第三行所示，函数调用结束后，？？？？？好像没有理解透彻哦（相关函数luaK_dischargevars()）
+  */
   if (e->k == VNONRELOC)
-    freereg(fs, e->u.s.info);
+    freereg(fs, e->u.s.info);	/* VNONRELOC info = result register */ 
 }
 
-
+/* local kvar = "hello" k=v="hello" */
 static int addk (FuncState *fs, TValue *k, TValue *v) {
   lua_State *L = fs->L;
   TValue *idx = luaH_set(L, fs->h, k);
   Proto *f = fs->f;
   int oldsize = f->sizek;
   if (ttisnumber(idx)) {
-    lua_assert(luaO_rawequalObj(&fs->f->k[cast_int(nvalue(idx))], v));
+    lua_assert(luaO_rawequalObj(&fs->f->k[cast_int(nvalue(idx))], v));	
     return cast_int(nvalue(idx));
   }
   else {  /* constant not found; create a new entry */
@@ -278,13 +300,21 @@ static int nilK (FuncState *fs) {
   return addk(fs, &k, &v);
 }
 
-
+/* nresults:-1, C=0，表示希望返回变参
+** nresults: 0, C=1, 表示希望返回0个参数
+** nresults: 2, C=2, 表示希望返回1个参数
+*/
 void luaK_setreturns (FuncState *fs, expdesc *e, int nresults) {
+  /* OP_CALL A B C 		R(A), … ,R(A+C-2) := R(A)(R(A+1), … ,R(A+B-1)) */
   if (e->k == VCALL) {  /* expression is an open function call? */
     SETARG_C(getcode(fs, e), nresults+1);
   }
   else if (e->k == VVARARG) {
+  	/* OP_VARARG A B 	R(A), R(A+1), ..., R(A+B-1) = vararg 
+  	** 将变参拷贝到RA指定的寄存器开始的地方，拷贝B个元素，这里仅使用了一个寄存器的编码
+  	*/
     SETARG_B(getcode(fs, e), nresults+1);
+	/* !!!! 不同于VCALL，这里占用了一个reg */
     SETARG_A(getcode(fs, e), fs->freereg);
     luaK_reserveregs(fs, 1);
   }
@@ -293,19 +323,30 @@ void luaK_setreturns (FuncState *fs, expdesc *e, int nresults) {
 
 void luaK_setoneret (FuncState *fs, expdesc *e) {
   if (e->k == VCALL) {  /* expression is an open function call? */
-    e->k = VNONRELOC;
+  	/* A B C R(A), … ,R(A+C-2) := R(A)(R(A+1), … ,R(A+B-1)) */
+  
+  	/* 函数调用返回的第一个值占用的reg就是函数指针本身占用的reg,
+  	** 不能返回到其它地方，故而这里是VNONRELOC
+  	*/
+    e->k = VNONRELOC;	
     e->u.s.info = GETARG_A(getcode(fs, e));
   }
   else if (e->k == VVARARG) {
-    SETARG_B(getcode(fs, e), 2);
+    SETARG_B(getcode(fs, e), 2);	/* 2:期待返回一个返回值 */
     e->k = VRELOCABLE;  /* can relocate its simple result */
   }
 }
 
-/* 为变量表达式生成估值计算的指令? */
+/* discharge:释放
+** 进一步确定表达式的(src源寄存器)信息(用于对表达式进一步求值)，以便下一步将表达式赋值给dst=src用
+**
+** 根据表达式的值(VLOCAL, VUPVAL...)类型，确定其寄存器类型(VNONRELOC或者VRELOCABLE)和
+**     指令的位置(对于需要重定位的VRELOCABLE)
+**  
+*/
 void luaK_dischargevars (FuncState *fs, expdesc *e) {
   switch (e->k) {
-    case VLOCAL: {
+    case VLOCAL: {	/* 本地变量占用的reg已确定了，故而这里是VNONRELOC */
       e->k = VNONRELOC;
       break;
     }
@@ -319,9 +360,12 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
       e->k = VRELOCABLE;
       break;
     }
-    case VINDEXED: {
+    case VINDEXED: {	/* OP_GETTABLE A B C R(A) := R(B)[RK(C)] */
+	  /* !!这里是依次释放的 */
       freereg(fs, e->u.s.aux);
       freereg(fs, e->u.s.info);
+	
+	  /* A填 0，配合下面的可重定位VRELOCALBLE */
       e->u.s.info = luaK_codeABC(fs, OP_GETTABLE, 0, e->u.s.info, e->u.s.aux);
       e->k = VRELOCABLE;
       break;
@@ -331,7 +375,27 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
       luaK_setoneret(fs, e);
       break;
     }
-    default: break;  /* there is one value available (somewhere) */
+	
+	/* !!!!常量，常量，常量 不需要用到reg，无需更新reg的信息e->k了 */
+	case VNIL:
+	case VTRUE:
+	case VFALSE:
+	case VKNUM:
+	case VK: {
+		break;
+	}
+	
+	/* 还没遇到过，不太理解 */
+	case VJMP:
+		break;
+			
+	/* e->k已经确定了寄存器的信息了，直接返回 */
+	case VRELOCABLE:
+	case VNONRELOC:
+		break;
+	
+    default:
+      break;  /* there is one value available (somewhere) */
   }
 }
 
@@ -341,10 +405,13 @@ static int code_label (FuncState *fs, int A, int b, int jump) {
   return luaK_codeABC(fs, OP_LOADBOOL, A, b, jump);
 }
 
-/* discharge:释放 */
+/* discharge:释放    将exp放到指定的寄存器上? */
 static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
   luaK_dischargevars(fs, e);
+  /* 参考 init_exp 和 luaK_dischargevars函数来理解本函数 */
   switch (e->k) {
+  	
+  	/* 表达式的值是常值, 这里生成指令并回填R(A) */
     case VNIL: {
       luaK_nil(fs, reg, 1);
       break;
@@ -353,29 +420,39 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
       luaK_codeABC(fs, OP_LOADBOOL, reg, e->k == VTRUE, 0);
       break;
     }
+	
+	/* 表达式的值在e->u.s.info：常量表中，这里提出来，生成指令并回填R(A)                       */
     case VK: {
+	  /* reg：指令的目标寄存器RA, e->u.s.info:指令中常量exp在常量表中的索引 */
       luaK_codeABx(fs, OP_LOADK, reg, e->u.s.info);
       break;
     }
+	/* 同上VK，只是nval在常量中的索引延迟到这里确定 */
     case VKNUM: {
       luaK_codeABx(fs, OP_LOADK, reg, luaK_numberK(fs, e->u.nval));
       break;
     }
+	
+	/* 指令，表达式的值都已确定，这里回填指令的目的地R(A)即可 */
     case VRELOCABLE: {
       Instruction *pc = &getcode(fs, e);
       SETARG_A(*pc, reg);
       break;
     }
+	/* 表达式的值已确定，生成OP_MOVE指令，回填R(A)=R(B)中的即可 */
     case VNONRELOC: {
       if (reg != e->u.s.info)
         luaK_codeABC(fs, OP_MOVE, reg, e->u.s.info, 0);
       break;
     }
+	/* VJMP尚不理解 */
     default: {
       lua_assert(e->k == VVOID || e->k == VJMP);
       return;  /* nothing to do... */
     }
   }
+  
+  /* 表达式的目的寄存器R(A)已确定 */
   e->u.s.info = reg;
   e->k = VNONRELOC;
 }
@@ -390,7 +467,9 @@ static void discharge2anyreg (FuncState *fs, expdesc *e) {
 
 
 static void exp2reg (FuncState *fs, expdesc *e, int reg) {
+
   discharge2reg(fs, e, reg);
+  
   if (e->k == VJMP)
     luaK_concat(fs, &e->t, e->u.s.info);  /* put this jump in `t' list */
   if (hasjumps(e)) {
@@ -407,15 +486,25 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
     patchlistaux(fs, e->f, final, reg, p_f);
     patchlistaux(fs, e->t, final, reg, p_t);
   }
+  
   e->f = e->t = NO_JUMP;
+  /* 表达式对应的reg已确定下来，不用再修改此expdesc的reg信息了 */
   e->u.s.info = reg;
   e->k = VNONRELOC;
 }
 
-
+/* ！！！！注释不保证100%正确 */
 void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
+  /* 
+  ** 更新exp的reg或者op信息
+  ** 不能确定exp对应指令的则e->u.info中填入指令地址，方便回填,同时e->k:更新为VRELOCABLE，表示需要回填RA?
+  */
   luaK_dischargevars(fs, e);
+
+  /* 释放占用的临时reg */
   freeexp(fs, e);
+  
+  /* 申请一个reg，并将exp赋值到reg上? */
   luaK_reserveregs(fs, 1);
   exp2reg(fs, e, fs->freereg - 1);
 }
@@ -442,7 +531,7 @@ void luaK_exp2val (FuncState *fs, expdesc *e) {
     luaK_dischargevars(fs, e);
 }
 
-
+/* 尝试进一步确定表达式的src值的指令 */
 int luaK_exp2RK (FuncState *fs, expdesc *e) {
   luaK_exp2val(fs, e);
   switch (e->k) {
@@ -470,26 +559,28 @@ int luaK_exp2RK (FuncState *fs, expdesc *e) {
   return luaK_exp2anyreg(fs, e);
 }
 
-
+/* 存储一个值到变量或变量表达式中，感觉类型的不同，生成不同的指令
+** var = ex
+*/
 void luaK_storevar (FuncState *fs, expdesc *var, expdesc *ex) {
   switch (var->k) {
     case VLOCAL: {
       freeexp(fs, ex);
-      exp2reg(fs, ex, var->u.s.info);
+      exp2reg(fs, ex, var->u.s.info);	/* var = ex */
       return;
     }
     case VUPVAL: {
-      int e = luaK_exp2anyreg(fs, ex);
+      int e = luaK_exp2anyreg(fs, ex);	/* var = ex */
       luaK_codeABC(fs, OP_SETUPVAL, e, var->u.s.info, 0);
       break;
     }
     case VGLOBAL: {
-      int e = luaK_exp2anyreg(fs, ex);
+      int e = luaK_exp2anyreg(fs, ex);	/* var = ex */
       luaK_codeABx(fs, OP_SETGLOBAL, e, var->u.s.info);
       break;
     }
     case VINDEXED: {
-      int e = luaK_exp2RK(fs, ex);
+      int e = luaK_exp2RK(fs, ex);	/* var = ex */
       luaK_codeABC(fs, OP_SETTABLE, var->u.s.info, var->u.s.aux, e);
       break;
     }
@@ -501,7 +592,7 @@ void luaK_storevar (FuncState *fs, expdesc *var, expdesc *ex) {
   freeexp(fs, ex);
 }
 
-
+/* OP_SELF A B C R(A+1) := R(B); R(A) := R(B)[RK(C)] */
 void luaK_self (FuncState *fs, expdesc *e, expdesc *key) {
   int func;
   luaK_exp2anyreg(fs, e);
@@ -514,7 +605,7 @@ void luaK_self (FuncState *fs, expdesc *e, expdesc *key) {
   e->k = VNONRELOC;
 }
 
-
+/* invert:颠倒 */
 static void invertjump (FuncState *fs, expdesc *e) {
   Instruction *pc = getjumpcontrol(fs, e->u.s.info);
   lua_assert(testTMode(GET_OPCODE(*pc)) && GET_OPCODE(*pc) != OP_TESTSET &&
@@ -537,13 +628,13 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   return condjump(fs, OP_TESTSET, NO_REG, e->u.s.info, cond);
 }
 
-
+/* and */
 void luaK_goiftrue (FuncState *fs, expdesc *e) {
   int pc;  /* pc of last jump */
   luaK_dischargevars(fs, e);
   switch (e->k) {
-    case VK: case VKNUM: case VTRUE: {
-      pc = NO_JUMP;  /* always true; do nothing */
+    case VK: case VKNUM: case VTRUE: {	
+      pc = NO_JUMP;  /* always true; do nothing， keep go throught? */
       break;
     }
     case VJMP: {
@@ -561,7 +652,7 @@ void luaK_goiftrue (FuncState *fs, expdesc *e) {
   e->t = NO_JUMP;
 }
 
-
+/* or */
 static void luaK_goiffalse (FuncState *fs, expdesc *e) {
   int pc;  /* pc of last jump */
   luaK_dischargevars(fs, e);
@@ -584,7 +675,9 @@ static void luaK_goiffalse (FuncState *fs, expdesc *e) {
   e->f = NO_JUMP;
 }
 
-
+/* not  A B R(A) := not R(B) 
+** not的stat的左边必须有左值,否则就是语法错误
+*/
 static void codenot (FuncState *fs, expdesc *e) {
   luaK_dischargevars(fs, e);
   switch (e->k) {
@@ -613,22 +706,30 @@ static void codenot (FuncState *fs, expdesc *e) {
       break;
     }
   }
+  
   /* interchange true and false lists */
   { int temp = e->f; e->f = e->t; e->t = temp; }
+  
   removevalues(fs, e->f);
   removevalues(fs, e->t);
 }
 
-
+/* 索引表达式t.k 
+** info = table register; aux = index register (or `k') 
+** eg: tbl(info).aux(aux) 
+*/
 void luaK_indexed (FuncState *fs, expdesc *t, expdesc *k) {
   t->u.s.aux = luaK_exp2RK(fs, k);
   t->k = VINDEXED;
 }
 
-
+/* 尝试合并二元操作符以及左右两边的表达式(编译优化) */
 static int constfolding (OpCode op, expdesc *e1, expdesc *e2) {
   lua_Number v1, v2, r;
+  
+  /* 两个操作数都得是numeral */
   if (!isnumeral(e1) || !isnumeral(e2)) return 0;
+  
   v1 = e1->u.nval;
   v2 = e2->u.nval;
   switch (op) {
@@ -651,13 +752,17 @@ static int constfolding (OpCode op, expdesc *e1, expdesc *e2) {
   return 1;
 }
 
-
+/* 
+** local a = b + c 
+** 表达式运行完毕后，b,c占用的临时的reg就可以被释放了，故而这一行编译完成后b,c占用的reg也可以释放了
+*/
 static void codearith (FuncState *fs, OpCode op, expdesc *e1, expdesc *e2) {
   if (constfolding(op, e1, e2))
     return;
   else {
     int o2 = (op != OP_UNM && op != OP_LEN) ? luaK_exp2RK(fs, e2) : 0;
     int o1 = luaK_exp2RK(fs, e1);
+    /* 释放exp的规则是从后往前free */
     if (o1 > o2) {
       freeexp(fs, e1);
       freeexp(fs, e2);
@@ -666,6 +771,7 @@ static void codearith (FuncState *fs, OpCode op, expdesc *e1, expdesc *e2) {
       freeexp(fs, e2);
       freeexp(fs, e1);
     }
+	/* 这里R(A)的值尚未确定，e->=VRELOCABLE:表示需要重定位？ */
     e1->u.s.info = luaK_codeABC(fs, op, 0, o1, o2);
     e1->k = VRELOCABLE;
   }
@@ -690,7 +796,8 @@ static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
 
 void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e) {
   expdesc e2;
-  e2.t = e2.f = NO_JUMP; e2.k = VKNUM; e2.u.nval = 0;
+  e2.t = e2.f = NO_JUMP;
+  e2.k = VKNUM; e2.u.nval = 0;
   switch (op) {
     case OPR_MINUS: {
       if (!isnumeral(e))
@@ -782,7 +889,7 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
   }
 }
 
-
+/* 更新上一个生成的pc对应的行信息 */
 void luaK_fixline (FuncState *fs, int line) {
   fs->f->lineinfo[fs->pc - 1] = line;
 }

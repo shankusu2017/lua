@@ -248,7 +248,7 @@ typedef struct Proto {
   
   Instruction *code;	/* 指向存放指令数组的指针 */
   int sizecode;
-  
+
   int *lineinfo;  		/* map from opcodes to source lines,   lineinfo[code.idx]->code.fileLine */
   int sizelineinfo;
   
@@ -256,15 +256,15 @@ typedef struct Proto {
   int sizep;  			/* size of `p' */
   
   TValue *k;  			/* constants used by the function */
-  int sizek;  			/* size of `k' */
+  int sizek;  			/* size of `k',当前申请的常量数组(*k)的容量, 当前实际使用量在 FuncState.nk                      */
 
   /* 可参考 FuncState.nlocvars 注释 */
   struct LocVar *locvars;  /* information about local variables */
   int sizelocvars;		   /* 申请的数组的整个大小（once'max?）（当前已被使用的数量在 FuncState nlocvars 域中,当整个数组被使用完毕时，回扩大） */
   
   TString **upvalues;  	/* upvalue names： upvalues的名字的数组 */
-  int sizeupvalues;
-  lu_byte nups;  		/* number of upvalues */
+  int sizeupvalues;		/* 整个数组的大小(数组内部可能还有部分slot未被使用) */
+  lu_byte nups;  		/* number of upvalues:实际使用的数量 */
   
   
   GCObject *gclist;

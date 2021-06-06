@@ -1,3 +1,11 @@
+local a = {}
+a.b = {c = 0}
+
+local d = {a.b.c}
+-- local a = "hell world"
+-- local b = 123
+-- local a = 10 / 0
+
 -- local t1 = {name = "t1"}
 -- local t2 = {name = "t2"}
 -- setmetatable(t1, t2)
@@ -122,10 +130,10 @@
 -- 	local v1, v2, v3, v4, v5, v6
 -- end
 
-local t = {}
+-- local t = {}
 
-function t:fun(a, b, c)
+-- function t:fun(a, b, c)
 
-end
+-- end
 
 -- print("opcode exe done")

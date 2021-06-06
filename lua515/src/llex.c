@@ -487,7 +487,9 @@ void luaX_next (LexState *ls) {
     ls->t.token = llex(ls, &ls->t.seminfo);  /* read next token */
 }
 
-/* 当前lookhead'token已过期，重新准备lookhead'token */
+/* 往前读取一个token的数据存到ls->lookahead.token上，供parser提前做决策
+** 后面parse再读取token时，先读取这个预备的token 
+*/
 void luaX_lookahead (LexState *ls) {
   lua_assert(ls->lookahead.token == TK_EOS);
   ls->lookahead.token = llex(ls, &ls->lookahead.seminfo);

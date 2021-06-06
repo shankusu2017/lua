@@ -22,6 +22,7 @@
 
 /*
 ** grep "ORDER OPR" if you change these enums
+** 二元操作符
 */
 typedef enum BinOpr {
   OPR_ADD, OPR_SUB, OPR_MUL, OPR_DIV, OPR_MOD, OPR_POW,
@@ -32,13 +33,19 @@ typedef enum BinOpr {
   OPR_NOBINOPR
 } BinOpr;
 
+/* 一元操作符 */
+typedef enum UnOpr { 
+	OPR_MINUS, 	/* - */
+	OPR_NOT, 	/* not */
+	OPR_LEN, 	/* # */
+	OPR_NOUNOPR /* 非一元操作符 */
+	} UnOpr;
 
-typedef enum UnOpr { OPR_MINUS, OPR_NOT, OPR_LEN, OPR_NOUNOPR } UnOpr;
-
-
+/* e的类型 expdesc */
 #define getcode(fs,e)	((fs)->f->code[(e)->u.s.info])
 
-#define luaK_codeAsBx(fs,o,A,sBx)	luaK_codeABx(fs,o,A,(sBx)+MAXARG_sBx)
+/* 生成sBx的操作码 */
+#define luaK_codeAsBx(fs,o,A,sBx)	luaK_codeABx(fs,o,A,(sBx)+MAXARG_sBx)	/* MAXARG_sBx：是0值 */
 
 #define luaK_setmultret(fs,e)	luaK_setreturns(fs, e, LUA_MULTRET)
 
@@ -50,7 +57,7 @@ LUAI_FUNC void luaK_reserveregs (FuncState *fs, int n);
 LUAI_FUNC void luaK_checkstack (FuncState *fs, int n);
 LUAI_FUNC int luaK_stringK (FuncState *fs, TString *s);
 LUAI_FUNC int luaK_numberK (FuncState *fs, lua_Number r);
-LUAI_FUNC void luaK_dischargevars (FuncState *fs, expdesc *e);
+LUAI_FUNC void luaK_dischargevars (FuncState *fs, expdesc *e);	/* discharge:释放 */
 LUAI_FUNC int luaK_exp2anyreg (FuncState *fs, expdesc *e);
 LUAI_FUNC void luaK_exp2nextreg (FuncState *fs, expdesc *e);
 LUAI_FUNC void luaK_exp2val (FuncState *fs, expdesc *e);

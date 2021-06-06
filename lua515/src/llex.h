@@ -31,7 +31,7 @@ enum RESERVED {
   TK_CONCAT, 	/* .. */
   TK_DOTS,		/* ... */
   TK_EQ, TK_GE, TK_LE, TK_NE, TK_NUMBER,
-  TK_NAME,		/* 标识符 */
+  TK_NAME,		/* 标识符 285 */
   TK_STRING,	/* 字符串 */
   TK_EOS
 };

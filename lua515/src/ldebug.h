@@ -29,5 +29,6 @@ LUAI_FUNC void luaG_runerror (lua_State *L, const char *fmt, ...);
 LUAI_FUNC void luaG_errormsg (lua_State *L);
 LUAI_FUNC int luaG_checkcode (const Proto *pt);
 LUAI_FUNC int luaG_checkopenop (Instruction i);
+LUAI_FUNC void luaG_printf(char *fmt, TValue *v);
 
 #endif

@@ -28,7 +28,7 @@
 #include "ltable.h"
 
 
-
+/* 也只有函数调用或变参操作符这两种TOKEN能返回 ... */
 #define hasmultret(k)		((k) == VCALL || (k) == VVARARG)
 
 /* i:当前活跃的locvar的索引 */
@@ -45,9 +45,17 @@
 typedef struct BlockCnt {
   struct BlockCnt *previous;  /* chain */
   int breaklist;  /* list of jumps out of this loop */
+
+  /* 
+  ** ！！！！在进入本block的瞬间，外面已经激活的var的数量， ！！！！
+  ** 意味着本块内激活的locvar的reg.idx不会低于整个值，
+  ** 用于按照便变量的生存期检索变量 
+  ** 退出本block后，将fs->reg重置到本次即可清掉本block内激活的actvar
+  */
   lu_byte nactvar;  /* # active locals outside the breakable structure */
-  lu_byte upval;  /* true if some variable in the block is an upvalue */
-  lu_byte isbreakable;  /* true if `block' is a loop */
+  
+  lu_byte upval;  /* true if some variable in the block is an upvalue(本块中存在某些变量是其它块的upvalues：本块关闭时要做善后处理？) */
+  lu_byte isbreakable;  /* true if `block' is a loop, 语法规则：break仅能用于loop的block中 */
 } BlockCnt;
 
 
@@ -58,7 +66,7 @@ typedef struct BlockCnt {
 static void chunk (LexState *ls);
 static void expr (LexState *ls, expdesc *v);
 
-
+/* anchor:锚 */
 static void anchor_token (LexState *ls) {
   if (ls->t.token == TK_NAME || ls->t.token == TK_STRING) {
     TString *ts = ls->t.seminfo.ts;
@@ -121,7 +129,10 @@ static void check_match (LexState *ls, int what, int who, int where) {
   }
 }
 
-/* 强制检查并当前token的type为TK_NAME，返回当前token，读取下一个token */
+/* 
+** 强制检查并当前token的type为TK_NAME，返回当前token，
+** 读取下一个token 
+*/
 static TString *str_checkname (LexState *ls) {
   TString *ts;
   check(ls, TK_NAME);		/* 当前token'type必须是TK_NAME的类型 */
@@ -130,19 +141,34 @@ static TString *str_checkname (LexState *ls) {
   return ts;
 }
 
-
+/*  KEYCODE: 关键函数 */
 static void init_exp (expdesc *e, expkind k, int i) {
-  e->f = e->t = NO_JUMP;	
-  e->k = k;			/* 表达式类型 */
-  e->u.s.info = i;	/* 代表的意思随k的变化而变化 */
+  e->f = e->t = NO_JUMP;
+  
+  /*
+  ************************************exp对应的reg已定或是一个参数无需reg*********************************
+  ** VVOID, VKNUM, VNIL, VTRUE, VFALSE,   	i:0 值直接被包含在表达式expdesc中，无需寄存器
+  ** VK   								    i:常量表中的索引
+  ** VLOCAL									i:locvar占用的reg索引
+  ** VGLOBAL							    i:NO_REG->全局变量名的NAME在常量表中的索引
+  **
+  **
+  ***********************************需回填指令的RA?**********************************
+  ** VRELOCABLE								i:？对应指令OP在指令数组中的下标（方便回填指令中的RA？)？
+  ** VCALL, VVARARG							i:对应指令OP在指令数组中的下标（方便回填指令中的RA？)
+  **
+  ** VNONRELOC								i:对应指令OP在指令数组的下标(方便回填指令中的RA?)
+  */
+  e->k = k;
+  e->u.s.info = i;
 }
 
-
+/* 用字符串(TK_NAME)s初始化expdesc的e表达式 */
 static void codestring (LexState *ls, expdesc *e, TString *s) {
   init_exp(e, VK, luaK_stringK(ls->fs, s));
 }
 
-
+/* 先检查当前t的类型为NAME，后将其携带的string赋值给expdesc */
 static void checkname(LexState *ls, expdesc *e) {
   codestring(ls, e, str_checkname(ls));
 }
@@ -155,21 +181,21 @@ static int registerlocalvar (LexState *ls, TString *varname) {
   Proto *f = fs->f;
   int oldsize = f->sizelocvars;
 
-  /* 空间不足则扩大 */
+  /* 原来的总数组f->sizelocvars空间不足则扩大 */
   luaM_growvector(ls->L, f->locvars, fs->nlocvars, f->sizelocvars,
                   LocVar, SHRT_MAX, "too many local variables");
   
   while (oldsize < f->sizelocvars)	/* locvars数组扩大则将新增的slot填NULL */
   	f->locvars[oldsize++].varname = NULL;
   
-  /* 更新locvar信息 *, startPC,endPC暂时还不确定 */
+  /* 更新locvar信息, startPC,endPC暂时还不确定 */
   f->locvars[fs->nlocvars].varname = varname; 
   /* printf("registerlocalvar: idx(%d), name(%p)\n", fs->nlocvars, varname); */
   luaC_objbarrier(ls->L, f, varname);
   return fs->nlocvars++;
 }
 
-
+/* 如果v是不变的string则此宏定义可以利用宏处理阶段提高程序速度 */
 #define new_localvarliteral(ls,v,n) \
   new_localvar(ls, luaX_newstring(ls, "" v, (sizeof(v)/sizeof(char))-1), n)
 
@@ -182,7 +208,9 @@ static void new_localvar (LexState *ls, TString *name, int n) {
   FuncState *fs = ls->fs;
   luaY_checklimit(fs, fs->nactvar+n+1, LUAI_MAXVARS, "local variables");
   /* 设置actvar 到 Proto.nlocvars 的映射 */
+  /* 这里仅设置了变量的name, 尚未设置startpc,endpc */
   fs->actvar[fs->nactvar+n] = cast(unsigned short, registerlocalvar(ls, name));
+  //printf("......... %d->%d", fs->nactvar+n, fs->actvar[fs->nactvar+n]);
 }
 
 /* 
@@ -193,10 +221,11 @@ static void adjustlocalvars (LexState *ls, int nvars) {
   FuncState *fs = ls->fs;
   
   /* 更新fs中当前激活的locvar数量 */
-   /* 更新fs中当前激活的locvar数量 */
-   /* 更新fs中当前激活的locvar数量 */
+  /* 更新fs中当前激活的locvar数量 */
+  /* 更新fs中当前激活的locvar数量 */
   fs->nactvar = cast_byte(fs->nactvar + nvars);	
-  
+
+  /* 更新localvar的startpc */
   for (; nvars; nvars--) {
     getlocvar(fs, fs->nactvar - nvars).startpc = fs->pc;
 	/* 对应的chunk结束时，再更新endpc信息，也只有那个时候才能确切的知道endpc */
@@ -208,35 +237,43 @@ static void adjustlocalvars (LexState *ls, int nvars) {
 */
 static void removevars (LexState *ls, int tolevel) {
   FuncState *fs = ls->fs;
-  while (fs->nactvar > tolevel)
-    getlocvar(fs, --fs->nactvar).endpc = fs->pc;
+  while (fs->nactvar > tolevel)	/* 这里tolevel是指block结束时对应的pc.idx */
+    getlocvar(fs, --fs->nactvar).endpc = fs->pc;	/* 离开block时,关闭block内actvar */
 }
 
-
+/* 查找一个upvalue,返回其在upval数组中的索引，没有则构建 */
 static int indexupvalue (FuncState *fs, TString *name, expdesc *v) {
   int i;
   Proto *f = fs->f;
   int oldsize = f->sizeupvalues;
+  /* 当前存在的upvalue中已存在吗? */
   for (i=0; i<f->nups; i++) {
-    if (fs->upvalues[i].k == v->k && fs->upvalues[i].info == v->u.s.info) {
-      lua_assert(f->upvalues[i] == name);
+    if (fs->upvalues[i].k == v->k &&			/* 类型为VUPVAL */
+		fs->upvalues[i].info == v->u.s.info) {	/* 在proto中的索引一致 */
+      lua_assert(f->upvalues[i] == name);		/* 名字就必须一致了 */
       return i;
     }
   }
+
   /* new one */
+  
+  /* 数组容量不够则扩大 */
   luaY_checklimit(fs, f->nups + 1, LUAI_MAXUPVALUES, "upvalues");
   luaM_growvector(fs->L, f->upvalues, f->nups, f->sizeupvalues,
                   TString *, MAX_INT, "");
-  while (oldsize < f->sizeupvalues) f->upvalues[oldsize++] = NULL;
+  while (oldsize < f->sizeupvalues)
+  	f->upvalues[oldsize++] = NULL;
+  
   f->upvalues[f->nups] = name;
   luaC_objbarrier(fs->L, f, name);
-  lua_assert(v->k == VLOCAL || v->k == VUPVAL);
+  lua_assert(v->k == VLOCAL || v->k == VUPVAL);	/* 这里的v->k==VLOCAL ? */
+  /* 更新到fs */
   fs->upvalues[f->nups].k = cast_byte(v->k);
   fs->upvalues[f->nups].info = cast_byte(v->u.s.info);
   return f->nups++;
 }
 
-
+/* 尝试在当前fs中匹配激活状态的locvar */
 static int searchvar (FuncState *fs, TString *n) {
   int i;
   for (i=fs->nactvar-1; i >= 0; i--) {
@@ -246,20 +283,43 @@ static int searchvar (FuncState *fs, TString *n) {
   return -1;  /* not found */
 }
 
-
+/* fs中的locvar在其它函数中被当作upval引用
+** 标记fs中对应的block，你有变量是其它fs的upval
+** level:actvar在reg数组中的索引
+*/
 static void markupval (FuncState *fs, int level) {
   BlockCnt *bl = fs->bl;
-  while (bl && bl->nactvar > level) bl = bl->previous;
-  if (bl) bl->upval = 1;
+  /* 这个标记过程的逻辑蛮有意思的 */
+  while (bl && bl->nactvar > level)
+  	bl = bl->previous;
+  if (bl)
+  	bl->upval = 1;
 }
 
-/* 查找变量名对应的表达式类型 */
+/* 查找变量名对应的表达式类型的值类型(VLOCAL还是?)
+**
+** 仔细看这个函数的逻辑，搞明白关于变量的查找过程
+** step1:先在本地fs6激活中的locvar查找，找到则返回VLOCAL
+** step2:往前一个fs5中的激活中的locvar查找，找不到，继续下一步step3
+** step3:继续往前一个fs1中的激活的locvar查找，一直到fs1->pre为空，则
+**     可以确定var是一个VGLOBAL
+** step4:在某一个fs3中的激活中的locvar被找到，则标记此fs3中的bl表示你的某个var被其它fsX当作upval了
+**        往前退，在fs4中的upval中新增一条信息(此upval在父fs3中是VLOCAL,且在fs3的actvar中的索引是多少)
+**        再往前退，在fs5中的upval中新增一条信息(此upval在父fs4中是UPVAL，且在fs4的upvalues的索引是多少)
+**        再往前退，直到初始的fs6，在fs6中的upval中新增一条信息（此upval在父fs5中是UPVAL,且在fs5的upvalues的索引是多少)
+**
+** 理论上可以优化下：在本地locvar找不到时，先不要在父fs中找，而是在本fs的upvales中找下
+*/
 static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
   if (fs == NULL) {  /* no more levels? */
-    init_exp(var, VGLOBAL, NO_REG);  /* default is global variable */
+  	/* default is global variable, NO_REG:表示此全局变量尚未决定其寄存器的位置
+	** 全局变量对应的NAME在p中常量表的索引由singlevar()函数来处理
+  	*/
+    init_exp(var, VGLOBAL, NO_REG);  
     return VGLOBAL;	/* 往外一层一层都找不到时，则认为它是全局变量 */
   }
   else {
+  	/* 在激活的locvar中找到了，则是本地变量 */
     int v = searchvar(fs, n);  /* look up at current level */
     if (v >= 0) {
       init_exp(var, VLOCAL, v);
@@ -278,35 +338,59 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
   }
 }
 
-
+/* 
+** step1: 检查ls->t.token的类型为TK_NAME，读取下一个TOKEN
+** step2: 根据上一个token的NAME，确定其变量(VLOCAL,VGLOBAL还是VUPVAL？)类型，
+**            后填充expdesc.u.s.info信息
+*/
 static void singlevar (LexState *ls, expdesc *var) {
   TString *varname = str_checkname(ls);
   FuncState *fs = ls->fs;
-  if (singlevaraux(fs, varname, var, 1) == VGLOBAL)
+
+  /*
+  ** OP_GETGLOBAL A Bx R(A) := Gbl[Kst(Bx)]
+  ** OP_SETGLOBAL A Bx Gbl[Kst(Bx)] := R(A)
+  ** 全局变量的指令需要知道表示全局变量的NAME在常量表中的idx，
+  **     理解这一点就明白了下面var->u.s.info的赋值的意义
+  */
+  if (singlevaraux(fs, varname, var, 1) == VGLOBAL) {	/* VLOCVAR,VUPVAL在singlevaraux中已被init_exp初始化 */
     var->u.s.info = luaK_stringK(fs, varname);  /* info points to global name */
+  }
 }
 
-
+/* 针对 nvars = nexps 赋值进行调整
+** 如果右边少了则给左边赋NIL
+** 如果右边有call,...则确定期待的返回值个数
+**
+** ！！！ 如果右边多了，本函数未处理！！！
+*/
 static void adjust_assign (LexState *ls, int nvars, int nexps, expdesc *e) {
   FuncState *fs = ls->fs;
-  int extra = nvars - nexps;
-  if (hasmultret(e->k)) {
-    extra++;  /* includes call itself */
+  /* extra: 右边除掉fun和...外，表达式的数量少于左边的val的数量的情况下，缺失的数量? */
+  int extra = nvars - nexps;	
+  if (hasmultret(e->k)) {	/* exp的类型为VARARG或CALL */
+    extra++;  /* includes call itself：除开VARARG和CALL本身 */
+	/* 如果右边exp多了，那就不用补偿左边了
+	** OP_VARARG A B R(A), R(A+1), ..., R(A+B-1) = vararg
+	** 看上面的指令的含义，猜测这里是在确定B的值
+	*/
     if (extra < 0) extra = 0;
+	
     luaK_setreturns(fs, e, extra);  /* last exp. provides the difference */
     if (extra > 1) luaK_reserveregs(fs, extra-1);
   }
   else {
     if (e->k != VVOID) luaK_exp2nextreg(fs, e);  /* close last expression */
-    if (extra > 0) {
+    if (extra > 0) {	/* nexps：包含右边最后一个exp */
       int reg = fs->freereg;
+	  /* 为左边多出来的var申请reg,然后填NIL */
       luaK_reserveregs(fs, extra);
       luaK_nil(fs, reg, extra);
     }
   }
 }
 
-
+/* 进入一个新的block */
 static void enterlevel (LexState *ls) {
   if (++ls->L->nCcalls > LUAI_MAXCCALLS)
 	luaX_lexerror(ls, "chunk has too many syntax levels", 0);
@@ -315,14 +399,17 @@ static void enterlevel (LexState *ls) {
 
 #define leavelevel(ls)	((ls)->L->nCcalls--)
 
-
+/* 进入块时，初始化block信息 */
 static void enterblock (FuncState *fs, BlockCnt *bl, lu_byte isbreakable) {
   bl->breaklist = NO_JUMP;
   bl->isbreakable = isbreakable;
   bl->nactvar = fs->nactvar;
   bl->upval = 0;
+  
+  /* 这里有个印象 */
   bl->previous = fs->bl;
   fs->bl = bl;
+  
   lua_assert(fs->freereg == fs->nactvar);
 }
 
@@ -330,13 +417,21 @@ static void enterblock (FuncState *fs, BlockCnt *bl, lu_byte isbreakable) {
 static void leaveblock (FuncState *fs) {
   BlockCnt *bl = fs->bl;
   fs->bl = bl->previous;
+  
+  /* 确定本block内激活的var的生存周期的endpc */
   removevars(fs->ls, bl->nactvar);
-  if (bl->upval)
+
+  /* OP_CLOSE A close all variables in the stack up to (>=) R(A) */
+  if (bl->upval) {
     luaK_codeABC(fs, OP_CLOSE, bl->nactvar, 0, 0);
+  }
+  
   /* a block either controls scope or breaks (never both) */
-  lua_assert(!bl->isbreakable || !bl->upval);
-  lua_assert(bl->nactvar == fs->nactvar);
+  lua_assert(!bl->isbreakable || !bl->upval);	/* TODOLOOK 还不是太理解 */
+  
+  lua_assert(bl->nactvar == fs->nactvar);	/* 这个必须保证 */
   fs->freereg = fs->nactvar;  /* free registers */
+  
   luaK_patchtohere(fs, bl->breaklist);
 }
 
@@ -353,7 +448,7 @@ static void pushclosure (LexState *ls, FuncState *func, expdesc *v) {
   luaC_objbarrier(ls->L, f, func->f);
   init_exp(v, VRELOCABLE, luaK_codeABx(fs, OP_CLOSURE, 0, fs->np-1));
   for (i=0; i<func->f->nups; i++) {
-    OpCode o = (func->upvalues[i].k == VLOCAL) ? OP_MOVE : OP_GETUPVAL;
+    OpCode o = (func->upvalues[i].k == VLOCAL) ? OP_MOVE : OP_GETUPVAL;	/* TODOLOOK 这里不是明白 */
     luaK_codeABC(fs, o, 0, func->upvalues[i].info, 0);
   }
 }
@@ -364,7 +459,7 @@ static void open_func (LexState *ls, FuncState *fs) {
   
   fs->L = L;	
   Proto *f = luaF_newproto(L);
-  fs->ls = ls;	/* funState 属于哪一个LexState */
+  fs->ls = ls;
   fs->f = f;	/* funState 在编译哪个Proto */
   
   /* ls指向最新的一个FuncState,这里可以猜测，只有先编译完了子函数才有可能编译父函数 */
@@ -379,7 +474,7 @@ static void open_func (LexState *ls, FuncState *fs) {
   fs->np = 0;
   fs->nlocvars = 0;
   fs->nactvar = 0;
-  fs->bl = NULL;
+  fs->bl = NULL;	/* 这里是NULL */
   f->source = ls->source;
   f->maxstacksize = 2;  /* registers 0/1 are always valid */
   fs->h = luaH_new(L, 0, 0);
@@ -400,12 +495,13 @@ static void close_func (LexState *ls) {
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
 
-  /* 关闭还处于激活状态的actvar */
+  /* 关闭还处于激活状态的actvar(设置endpc) */
   removevars(ls, 0);
 
   /* 自动补一个 OP_RETURN 指令 */
   luaK_ret(fs, 0, 0);  /* final return */
-  
+
+  /* 释放多余的mem */
   luaM_reallocvector(L, f->code, f->sizecode, fs->pc, Instruction);
   f->sizecode = fs->pc;
   
@@ -424,7 +520,7 @@ static void close_func (LexState *ls) {
   luaM_reallocvector(L, f->upvalues, f->sizeupvalues, f->nups, TString *);
   f->sizeupvalues = f->nups;
   
-  lua_assert(luaG_checkcode(f));
+  lua_assert(luaG_checkcode(f));	/* 检查生成的字节码是否有明显的问题 */
   lua_assert(fs->bl == NULL);
   
   /* 本子函数编译完毕，切换到母函数中去 */
@@ -454,7 +550,7 @@ Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
   funcstate.f->is_vararg = VARARG_ISVARARG;  /* main func. is always vararg，哈哈知道lua文件一般开头的local modName=...的语法支撑了吧 */
   luaX_next(&lexstate);  /* read first token */
   chunk(&lexstate);
-  check(&lexstate, TK_EOS);
+  check(&lexstate, TK_EOS);	/* 直到编译到文件EOF才结束编译流程 */
   close_func(&lexstate);
   
   lua_assert(lexstate.fs == NULL);		/* lexstate下不应该还有未编译完的funState了 */
@@ -469,14 +565,13 @@ Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
 /* GRAMMAR RULES */
 /*============================================================*/
 
-
 static void field (LexState *ls, expdesc *v) {
   /* field -> ['.' | ':'] NAME */
   FuncState *fs = ls->fs;
   expdesc key;
   luaK_exp2anyreg(fs, v);
   luaX_next(ls);  /* skip the dot or colon */
-  checkname(ls, &key);
+  checkname(ls, &key);	/* 读取NAME这个域的常量exp并返回给key */
   luaK_indexed(fs, v, &key);
 }
 
@@ -496,16 +591,18 @@ static void yindex (LexState *ls, expdesc *v) {
 ** =======================================================================
 */
 
-/* 构造表 */
+/* 构造表   tbl {a, b, c, d.e} */
 struct ConsControl {
-  expdesc v;  /* last list item read */
-  expdesc *t;  /* table descriptor */
+  expdesc v;  /* last list item read: 指代正在分析到的哪一个元素eg(b) */
+  expdesc *t;  /* table descriptor 指代本表的expdesc */
   int nh;  /* total number of `record' elements */
   int na;  /* total number of array elements */
   int tostore;  /* number of array elements pending to be stored */
 };
 
-
+/* 形如 local tbl = { x = 1,}
+** 中的x=1,这种指定k=v的表达式
+*/
 static void recfield (LexState *ls, struct ConsControl *cc) {
   /* recfield -> (NAME | `['exp1`]') = exp1 */
   FuncState *fs = ls->fs;
@@ -526,7 +623,9 @@ static void recfield (LexState *ls, struct ConsControl *cc) {
   fs->freereg = reg;  /* free registers */
 }
 
-
+/* local tbl = {a,b,c,d}
+** 解析完毕b,关闭对b的解析
+*/
 static void closelistfield (FuncState *fs, struct ConsControl *cc) {
   if (cc->v.k == VVOID) return;  /* there is no list item */
   luaK_exp2nextreg(fs, &cc->v);
@@ -537,7 +636,9 @@ static void closelistfield (FuncState *fs, struct ConsControl *cc) {
   }
 }
 
-
+/* local tbl = {a, b, c, d}
+** 结束d的解析后，调到这里 
+*/
 static void lastlistfield (FuncState *fs, struct ConsControl *cc) {
   if (cc->tostore == 0) return;
   if (hasmultret(cc->v.k)) {
@@ -552,7 +653,9 @@ static void lastlistfield (FuncState *fs, struct ConsControl *cc) {
   }
 }
 
-
+/* tbl = {a,b, c = 100}
+** 中的数组部分eg:a,b
+*/
 static void listfield (LexState *ls, struct ConsControl *cc) {
   expr(ls, &cc->v);
   luaY_checklimit(ls->fs, cc->na, MAX_INT, "items in a constructor");
@@ -560,17 +663,22 @@ static void listfield (LexState *ls, struct ConsControl *cc) {
   cc->tostore++;
 }
 
-
+/* tableconstructor ::= `{´ [fieldlist] `}´ */
 static void constructor (LexState *ls, expdesc *t) {
   /* constructor -> ?? */
   FuncState *fs = ls->fs;
   int line = ls->linenumber;
+  
   int pc = luaK_codeABC(fs, OP_NEWTABLE, 0, 0, 0);
   struct ConsControl cc;
   cc.na = cc.nh = cc.tostore = 0;
   cc.t = t;
+  
+  /* 初始化表示table的exp */
   init_exp(t, VRELOCABLE, pc);
+  
   init_exp(&cc.v, VVOID, 0);  /* no value (yet) */
+  
   luaK_exp2nextreg(ls->fs, t);  /* fix it at stack top (for gc) */
   checknext(ls, '{');
   do {
@@ -682,7 +790,7 @@ static void body (LexState *ls, expdesc *e, int needself, int line) {
   pushclosure(ls, &new_fs, e);
 }
 
-
+/* 解析表达式，返回表达式中的项的数量 */
 static int explist1 (LexState *ls, expdesc *v) {
   /* explist1 -> expr { `,' expr } */
   int n = 1;  /* at least one expression */
@@ -753,7 +861,13 @@ static void funcargs (LexState *ls, expdesc *f) {
 ** =======================================================================
 */
 
-
+/* 
+** prefixexp ::= var | functioncall | `(´ exp `)
+** var ::=  Name | prefixexp `[´ exp `]´ | prefixexp `.´ Name 
+** exp ::=  nil | false | true | Number | String | `...´ | function | 
+**	 prefixexp | tableconstructor | exp binop exp | unop exp 
+**
+*/
 static void prefixexp (LexState *ls, expdesc *v) {
   /* prefixexp -> NAME | '(' expr ')' */
   switch (ls->t.token) {
@@ -766,7 +880,11 @@ static void prefixexp (LexState *ls, expdesc *v) {
       return;
     }
     case TK_NAME: {
-      singlevar(ls, v);
+      /* 确定当前ls->t.token的变量类型(VLOCAL,VGLOBAL还是VUPVAL？)
+      **     填充expdesc.u.s.info信息
+      ** 读取下一个Token
+      */
+      singlevar(ls, v); 
       return;
     }
     default: {
@@ -776,12 +894,13 @@ static void prefixexp (LexState *ls, expdesc *v) {
   }
 }
 
-
+/* primary：基本的 */
 static void primaryexp (LexState *ls, expdesc *v) {
-  /* primaryexp ->
-        prefixexp { `.' NAME | `[' exp `]' | `:' NAME funcargs | funcargs } */
+  /* primaryexp -> prefixexp { `.' NAME | `[' exp `]' | `:' NAME funcargs | funcargs } */
   FuncState *fs = ls->fs;
+  
   prefixexp(ls, v);
+  
   for (;;) {
     switch (ls->t.token) {
       case '.': {  /* field */
@@ -820,7 +939,7 @@ static void simpleexp (LexState *ls, expdesc *v) {
   switch (ls->t.token) {
     case TK_NUMBER: {
       init_exp(v, VKNUM, 0);
-      v->u.nval = ls->t.seminfo.r;
+      v->u.nval = ls->t.seminfo.r;	/* 直接赋值NUMBER */
       break;
     }
     case TK_STRING: {
@@ -864,7 +983,7 @@ static void simpleexp (LexState *ls, expdesc *v) {
   luaX_next(ls);
 }
 
-
+/* 返回TK可能的一元操作符TK */
 static UnOpr getunopr (int op) {
   switch (op) {
     case TK_NOT: return OPR_NOT;
@@ -927,6 +1046,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
     luaK_prefix(ls->fs, uop, v);
   }
   else simpleexp(ls, v);
+  
   /* expand while operators have priorities higher than `limit' */
   op = getbinopr(ls->t.token);
   while (op != OPR_NOBINOPR && priority[op].left > limit) {
@@ -1236,8 +1356,8 @@ static int test_then_block (LexState *ls) {
 static void ifstat (LexState *ls, int line) {
   /* ifstat -> IF cond THEN block {ELSEIF cond THEN block} [ELSE block] END */
   FuncState *fs = ls->fs;
-  int flist;
-  int escapelist = NO_JUMP;
+  int flist;	/* false'list */
+  int escapelist = NO_JUMP;	/* 块结束的addr */
   flist = test_then_block(ls);  /* IF cond THEN block */
   while (ls->t.token == TK_ELSEIF) {
     luaK_concat(fs, &escapelist, luaK_jump(fs));
@@ -1282,17 +1402,19 @@ static void localfunc (LexState *ls) {
   getlocvar(fs, fs->nactvar - 1).startpc = fs->pc;
 }
 
-
+/* local varlist = explist1 */
 static void localstat (LexState *ls) {
   /* stat -> LOCAL NAME {`,' NAME} [`=' explist1] */
   int nvars = 0;
   int nexps;
   expdesc e;
-  do {
+  
+  do {	/* 登记左边的变量名到 Proto.locvars */
     new_localvar(ls, str_checkname(ls), nvars++);
   } while (testnext(ls, ','));
+  
   if (testnext(ls, '='))
-    nexps = explist1(ls, &e);
+    nexps = explist1(ls, &e);	/* 解析表达式 */
   else {
     e.k = VVOID;
     nexps = 0;
@@ -1439,9 +1561,12 @@ static void chunk (LexState *ls) {
   enterlevel(ls);
   while (!islast && !block_follow(ls->t.token)) {
     islast = statement(ls);
+	/* statement后面的';'是可选的 */
     testnext(ls, ';');
     lua_assert(ls->fs->f->maxstacksize >= ls->fs->freereg &&
                ls->fs->freereg >= ls->fs->nactvar);
+	
+	/* 释放上一个块占用的临时寄存器 */
     ls->fs->freereg = ls->fs->nactvar;  /* free registers */
   }
   leavelevel(ls);

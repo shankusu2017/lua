@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 
 #define ldebug_c
@@ -322,7 +323,7 @@ static int checkArgMode (const Proto *pt, int r, enum OpArgMask mode) {
   return 1;
 }
 
-
+/* 检查pt的字节码是否有明显的Bug */
 static Instruction symbexec (const Proto *pt, int lastpc, int reg) {
   int pc;
   int last;  /* stores position of last instruction that changed `reg' */
@@ -648,3 +649,27 @@ void luaG_runerror (lua_State *L, const char *fmt, ...) {
   luaG_errormsg(L);
 }
 
+LUAI_FUNC void luaG_printf(char *fmt, TValue *v) {
+  char fmtBuf[1024] = {0};
+  char outBuf[2028] = {0};
+
+  switch ttype(v) {
+    case LUA_TNIL:
+      sprintf(fmtBuf, " t(%s).v(nil)\n", luaT_typenames[ttype(v)], NULL);
+      break;
+    case LUA_TBOOLEAN:
+      sprintf(fmtBuf, " t(%s).v(%d)\n", luaT_typenames[ttype(v)], !l_isfalse(v));
+      break;
+    case LUA_TNUMBER:
+      sprintf(fmtBuf, " t(%s).v(%f)\n", luaT_typenames[ttype(v)], nvalue(v));
+      break;
+    case LUA_TSTRING:
+      sprintf(fmtBuf, " t(%s).v(%s)\n", luaT_typenames[ttype(v)], svalue(v));
+      break;
+    default:
+      sprintf(fmtBuf, " t(%s).v(%s)\n", luaT_typenames[ttype(v)], v);
+      break;
+  }
+
+  printf("%s %s", fmt, fmtBuf);
+}
