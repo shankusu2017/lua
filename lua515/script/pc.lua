@@ -1,7 +1,15 @@
-local a = {}
-a.b = {c = 0}
-
-local d = {a.b.c}
+-- local a
+local a
+a = 1, 2, fun()
+-- local d
+-- local e = nil
+-- local a 
+-- local b
+-- local c
+-- local function funName()
+	
+-- end
+-- local d = {a = b.c}
 -- local a = "hell world"
 -- local b = 123
 -- local a = 10 / 0
