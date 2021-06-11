@@ -66,7 +66,13 @@ typedef struct BlockCnt {
 static void chunk (LexState *ls);
 static void expr (LexState *ls, expdesc *v);
 
-/* anchor:锚 */
+/* anchor:锚 
+** function f1()
+**    function f2()
+**    end
+** end
+** 变量名f2在f1中属于常量，注册变量名f2到f1的常量表中
+*/
 static void anchor_token (LexState *ls) {
   if (ls->t.token == TK_NAME || ls->t.token == TK_STRING) {
     TString *ts = ls->t.seminfo.ts;
@@ -141,24 +147,22 @@ static TString *str_checkname (LexState *ls) {
   return ts;
 }
 
-/*  KEYCODE: 关键函数 */
+/*  KEYCODE: 关键函数 
+************************************exp对应的reg已定或是一个参数无需reg*********************************
+** VVOID, VKNUM, VNIL, VTRUE, VFALSE,	  i:0 值直接被包含在表达式expdesc中，无需寄存器
+** VK									  i:常量表中的索引
+** VLOCAL								  i:locvar占用的reg索引
+** VGLOBAL								  i:NO_REG->全局变量名的NAME在常量表中的索引
+**
+**
+***********************************需回填指令的RA?**********************************
+** VRELOCABLE							  i:？对应指令OP在指令数组中的下标（方便回填指令中的RA？)？
+** VCALL, VVARARG						  i:对应指令OP在指令数组中的下标（方便回填指令中的RA？)
+**
+** VNONRELOC							  i:对应指令OP在指令数组的下标(方便回填指令中的RA?)
+*/
 static void init_exp (expdesc *e, expkind k, int i) {
   e->f = e->t = NO_JUMP;
-  
-  /*
-  ************************************exp对应的reg已定或是一个参数无需reg*********************************
-  ** VVOID, VKNUM, VNIL, VTRUE, VFALSE,   	i:0 值直接被包含在表达式expdesc中，无需寄存器
-  ** VK   								    i:常量表中的索引
-  ** VLOCAL									i:locvar占用的reg索引
-  ** VGLOBAL							    i:NO_REG->全局变量名的NAME在常量表中的索引
-  **
-  **
-  ***********************************需回填指令的RA?**********************************
-  ** VRELOCABLE								i:？对应指令OP在指令数组中的下标（方便回填指令中的RA？)？
-  ** VCALL, VVARARG							i:对应指令OP在指令数组中的下标（方便回填指令中的RA？)
-  **
-  ** VNONRELOC								i:对应指令OP在指令数组的下标(方便回填指令中的RA?)
-  */
   e->k = k;
   e->u.s.info = i;
 }
@@ -168,7 +172,7 @@ static void codestring (LexState *ls, expdesc *e, TString *s) {
   init_exp(e, VK, luaK_stringK(ls->fs, s));
 }
 
-/* 先检查当前t的类型为NAME，后将其携带的string赋值给expdesc */
+/* 先检查当前t的类型为NAME，后将其携带的string赋值给expdesc, 内部读取一次luaX_next() */
 static void checkname(LexState *ls, expdesc *e) {
   codestring(ls, e, str_checkname(ls));
 }
@@ -221,14 +225,13 @@ static void adjustlocalvars (LexState *ls, int nvars) {
   FuncState *fs = ls->fs;
   
   /* 更新fs中当前激活的locvar数量 */
-  /* 更新fs中当前激活的locvar数量 */
-  /* 更新fs中当前激活的locvar数量 */
   fs->nactvar = cast_byte(fs->nactvar + nvars);	
 
-  /* 更新localvar的startpc */
+  /* 更新localvar的startpc 
+  ** 对应chunk结束时再更新endpc，也只有那个时候才能确切的知道endpc 
+  */
   for (; nvars; nvars--) {
     getlocvar(fs, fs->nactvar - nvars).startpc = fs->pc;
-	/* 对应的chunk结束时，再更新endpc信息，也只有那个时候才能确切的知道endpc */
   }
 }
 
@@ -366,18 +369,28 @@ static void singlevar (LexState *ls, expdesc *var) {
 */
 static void adjust_assign (LexState *ls, int nvars, int nexps, expdesc *e) {
   FuncState *fs = ls->fs;
-  /* extra: 右边除掉fun和...外，表达式的数量少于左边的val的数量的情况下，缺失的数量? */
+  /* extra: 右边除掉fun和...外，表达式的数量少于左边的val的数量的情况下，缺失的数量 */
   int extra = nvars - nexps;	
   if (hasmultret(e->k)) {	/* exp的类型为VARARG或CALL */
     extra++;  /* includes call itself：除开VARARG和CALL本身 */
-	/* 如果右边exp多了，那就不用补偿左边了
-	** OP_VARARG A B R(A), R(A+1), ..., R(A+B-1) = vararg
-	** 看上面的指令的含义，猜测这里是在确定B的值
-	*/
+	
+	/*  varCtn ?= expCnt + e.retCnt 分析需要表达式e返回值的个数来平衡左右两边的数量
+	** 左边varCnt <= expCnt 无需e返回值
+	** 左边varCNT > expCnt, 需要e返回X个值，以便varCnt = expCnt + e.retCnt
+    */
     if (extra < 0) extra = 0;
 	
     luaK_setreturns(fs, e, extra);  /* last exp. provides the difference */
-    if (extra > 1) luaK_reserveregs(fs, extra-1);
+
+	/* 预定上面变参需要的多余的寄存器，预定出来干什么了? 
+	** 用于将变参的值从尾到头拷贝给var
+	** eg: a, b, c, d = e, f()
+	**     右边在explist1处理时f()仅期待返回一个参数，且fs->freereg也是正常的往后移动了1个slot
+	**     	   上面luaK_setreturns()函数仅修改了OP_CALL并没有对照移动fs->freereg，此时fs->freereg对应左边变量b。
+	**     这里根据需要将其往右边移动2个slot，此时fs->freereg对应左边变量d了，这样就即告诉f需要3个参数，又多预留了
+	**         2个参数的位置出来(f原本计划返回1个，故而这里多了2个),逻辑就对上了。明白了吧！！！！！
+	*/
+    if (extra > 1) luaK_reserveregs(fs, extra-1);	
   }
   else {
     if (e->k != VVOID) luaK_exp2nextreg(fs, e);  /* close last expression */
@@ -444,11 +457,17 @@ static void pushclosure (LexState *ls, FuncState *func, expdesc *v) {
   luaM_growvector(ls->L, f->p, fs->np, f->sizep, Proto *,
                   MAXARG_Bx, "constant table overflow");
   while (oldsize < f->sizep) f->p[oldsize++] = NULL;
+  /* 放入子函数定义数组中，新增对其引用 */
   f->p[fs->np++] = func->f;
   luaC_objbarrier(ls->L, f, func->f);
+
+  /* 生成 OP_CLOSURE指令 */
   init_exp(v, VRELOCABLE, luaK_codeABx(fs, OP_CLOSURE, 0, fs->np-1));
+  /* 处理upval */
   for (i=0; i<func->f->nups; i++) {
-    OpCode o = (func->upvalues[i].k == VLOCAL) ? OP_MOVE : OP_GETUPVAL;	/* TODOLOOK 这里不是明白 */
+  	/* 这里终于明白k的不同类型的作用了吧 */
+    OpCode o = (func->upvalues[i].k == VLOCAL) ? OP_MOVE : OP_GETUPVAL;
+	/* R(A) 被暗含在i上了 */
     luaK_codeABC(fs, o, 0, func->upvalues[i].info, 0);
   }
 }
@@ -526,8 +545,16 @@ static void close_func (LexState *ls) {
   /* 本子函数编译完毕，切换到母函数中去 */
   ls->fs = fs->prev;
   
-  /* last token read was anchored(锚定) in defunct function; must reanchor(锚) it */
-  if (fs) anchor_token(ls);
+  /* last token read was anchored(锚定) in defunct function; must reanchor(锚) it 
+  ** 本函数的函数名在上一层函数中可能是个常量，这里注册到其常量表中
+  */
+  if (fs) 
+  	anchor_token(ls);
+
+  /* 
+  ** 本函数在open_func中新增的两个gc变量占用了堆栈空间，
+  ** 编译结束，其被其他gc变量引用不会被gc了，释放其占用的stack空间
+  */
   L->top -= 2;  /* remove table and prototype from the stack */
 }
 
@@ -565,14 +592,24 @@ Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
 /* GRAMMAR RULES */
 /*============================================================*/
 
+/* A.B, A:B 
+** 对前缀生成必要的估值指令，放入free'reg(若有必要)
+** 用上述值作为A,再和B一起生成新的VINDEXED表达式
+*/
 static void field (LexState *ls, expdesc *v) {
   /* field -> ['.' | ':'] NAME */
   FuncState *fs = ls->fs;
   expdesc key;
-  luaK_exp2anyreg(fs, v);
-  luaX_next(ls);  /* skip the dot or colon */
-  checkname(ls, &key);	/* 读取NAME这个域的常量exp并返回给key */
-  luaK_indexed(fs, v, &key);
+  
+  /* 将前缀(a.b.c中的a.b或a.b中的a)加载到reg中，若前缀已在寄存器中则无需处理(A=VLOCAL(a)) */
+  luaK_exp2anyreg(fs, v);	
+  
+  luaX_next(ls); 		/* skip the dot or colon */
+  
+  checkname(ls, &key);	/* 读取NAME这个域的常量exp并返回给key */		
+
+  /* 生成新的VINDEXED表达式（求值指令，指令的目标寄存器尚未处理） */
+  luaK_indexed(fs, v, &key);	
 }
 
 
@@ -591,17 +628,17 @@ static void yindex (LexState *ls, expdesc *v) {
 ** =======================================================================
 */
 
-/* 构造表   tbl {a, b, c, d.e} */
+/* 构造表   tbl {a, b, c=val, d.e} */
 struct ConsControl {
-  expdesc v;  /* last list item read: 指代正在分析到的哪一个元素eg(b) */
   expdesc *t;  /* table descriptor 指代本表的expdesc */
+  expdesc v;  /* last list item read: 指代正在分析到的哪一个元素eg(b),对于c=val用不上v */
   int nh;  /* total number of `record' elements */
   int na;  /* total number of array elements */
   int tostore;  /* number of array elements pending to be stored */
 };
 
-/* 形如 local tbl = { x = 1,}
-** 中的x=1,这种指定k=v的表达式
+/* 形如 local tbl = { x = y, [a] = b,}
+** 中的x=1,这种指定tbl[k]=v的表达式
 */
 static void recfield (LexState *ls, struct ConsControl *cc) {
   /* recfield -> (NAME | `['exp1`]') = exp1 */
@@ -609,18 +646,26 @@ static void recfield (LexState *ls, struct ConsControl *cc) {
   int reg = ls->fs->freereg;
   expdesc key, val;
   int rkkey;
+
+  /* 对key生成加载指令 */
   if (ls->t.token == TK_NAME) {
     luaY_checklimit(fs, cc->nh, MAX_INT, "items in a constructor");
     checkname(ls, &key);
   }
   else  /* ls->t.token == '[' */
     yindex(ls, &key);
+  
   cc->nh++;
   checknext(ls, '=');
+  /* 回填上述k的加载指令,将表达式的值SET到next'free'reg上 */
   rkkey = luaK_exp2RK(fs, &key);
+
+  /* 初始化表达式val */
   expr(ls, &val);
+  /* 先生成对val的LOAD_XXX加载指令，后生成OP_SETTABLE */
   luaK_codeABC(fs, OP_SETTABLE, cc->t->u.s.info, rkkey, luaK_exp2RK(fs, &val));
-  fs->freereg = reg;  /* free registers */
+  
+  fs->freereg = reg;  /* free registers 释放表达式占用的临时寄存器 */
 }
 
 /* local tbl = {a,b,c,d}
@@ -629,7 +674,7 @@ static void recfield (LexState *ls, struct ConsControl *cc) {
 static void closelistfield (FuncState *fs, struct ConsControl *cc) {
   if (cc->v.k == VVOID) return;  /* there is no list item */
   luaK_exp2nextreg(fs, &cc->v);
-  cc->v.k = VVOID;
+  cc->v.k = VVOID;	/* 释放表达式 */
   if (cc->tostore == LFIELDS_PER_FLUSH) {
     luaK_setlist(fs, cc->t->u.s.info, cc->na, cc->tostore);  /* flush */
     cc->tostore = 0;  /* no more items pending */
@@ -638,23 +683,23 @@ static void closelistfield (FuncState *fs, struct ConsControl *cc) {
 
 /* local tbl = {a, b, c, d}
 ** 结束d的解析后，调到这里 
+** 逻辑独立出来是因为函数调用作为表的最后一个元素和非最后一个元素，其期望对其返回值的个数是不一样的
 */
 static void lastlistfield (FuncState *fs, struct ConsControl *cc) {
   if (cc->tostore == 0) return;
-  if (hasmultret(cc->v.k)) {
+  if (hasmultret(cc->v.k)) {	/* 最后一个listfield是变参:作为explist1中的子项，默认仅返回单个参数，这里根据实际需求进行修正 */
     luaK_setmultret(fs, &cc->v);
     luaK_setlist(fs, cc->t->u.s.info, cc->na, LUA_MULTRET);
     cc->na--;  /* do not count last expression (unknown number of elements) */
   }
   else {
     if (cc->v.k != VVOID)
-      luaK_exp2nextreg(fs, &cc->v);
+      luaK_exp2nextreg(fs, &cc->v);	/* 加载最后一个表达式到next'free'reg */
     luaK_setlist(fs, cc->t->u.s.info, cc->na, cc->tostore);
   }
 }
 
-/* tbl = {a,b, c = 100}
-** 中的数组部分eg:a,b
+/* tbl = {a,b, c = 100} 数组中单个field eg:a
 */
 static void listfield (LexState *ls, struct ConsControl *cc) {
   expr(ls, &cc->v);
@@ -663,7 +708,6 @@ static void listfield (LexState *ls, struct ConsControl *cc) {
   cc->tostore++;
 }
 
-/* tableconstructor ::= `{´ [fieldlist] `}´ */
 static void constructor (LexState *ls, expdesc *t) {
   /* constructor -> ?? */
   FuncState *fs = ls->fs;
@@ -674,7 +718,7 @@ static void constructor (LexState *ls, expdesc *t) {
   cc.na = cc.nh = cc.tostore = 0;
   cc.t = t;
   
-  /* 初始化表示table的exp */
+  /* 初始化table的exp */
   init_exp(t, VRELOCABLE, pc);
   
   init_exp(&cc.v, VVOID, 0);  /* no value (yet) */
@@ -683,7 +727,7 @@ static void constructor (LexState *ls, expdesc *t) {
   checknext(ls, '{');
   do {
     lua_assert(cc.v.k == VVOID || cc.tostore > 0);
-    if (ls->t.token == '}') break;
+    if (ls->t.token == '}') break;	/* 表被遍历完毕 */
     closelistfield(fs, &cc);
     switch(ls->t.token) {
       case TK_NAME: {  /* may be listfields or recfields */
@@ -706,6 +750,8 @@ static void constructor (LexState *ls, expdesc *t) {
   } while (testnext(ls, ',') || testnext(ls, ';'));
   check_match(ls, '}', '{', line);
   lastlistfield(fs, &cc);
+
+  /* 更新OP_NEWTABLE指令的参数 */
   SETARG_B(fs->f->code[pc], luaO_int2fb(cc.na)); /* set initial array size */
   SETARG_C(fs->f->code[pc], luaO_int2fb(cc.nh));  /* set initial table size */
 }
@@ -720,7 +766,7 @@ static void parlist (LexState *ls) {
   /* parlist -> [ param { `,' param } ] */
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
-  int nparams = 0;
+  int nparams = 0;	/* 固定参数的个数(不包含...变参) */
   f->is_vararg = 0;
   if (ls->t.token != ')') {  /* is `parlist' not empty? */
     do {
@@ -757,27 +803,27 @@ static void body (LexState *ls, expdesc *e, int needself, int line) {
   /* body ->  `(' parlist `)' chunk END */
   FuncState new_fs;
   
-  /* 更新ls中的fs变量，完成编译对象的切换 */
+  /* ! 更新ls中的fs变量，完成编译对象fs的切换 */
   open_func(ls, &new_fs);
   
-  /* 新函数从哪一方开始定义 */
+  /* 新函数从哪一行开始定义 */
   new_fs.f->linedefined = line;
   
   /* local name = function () 或者 local function name() 这两种函数定义格式对应的函数都是从‘(’开始，*/
   checknext(ls, '(');
 
-  /* 这里看得出来self将是本fs的第一个locvar，占用一个正常的locvar
-  ** Proto.numparams 中也包含self
-  */
-  if (needself) {	/* 处理 function modName:sub() body end 这种情况，参考funcname()代码可知 */
+  /* 处理 function modName:sub() body end 这种情况，参考funcname()代码可知 */
+  if (needself) {	
     new_localvarliteral(ls, "self", 0);
+	/* self当作本fs的第一个locvar，占用一个正常的locvar对应的reg */
     adjustlocalvars(ls, 1);
   }
   /* 解析显式形参 */
   parlist(ls);
   
   checknext(ls, ')');
-  
+
+  /* 解析函数体 */
   chunk(ls);
   
   /* 函数定义结束于哪一行 */
@@ -790,7 +836,16 @@ static void body (LexState *ls, expdesc *e, int needself, int line) {
   pushclosure(ls, &new_fs, e);
 }
 
-/* 解析表达式，返回表达式中的项的数量 */
+/* 解析表达式，返回表达式中的项的数量
+** 边解析表达式，边生成对应的CP_XXX指令(最后一个表达式可能是变参表达式，故留给上层业务处理)
+**
+** NOTE: 一个表达式的项，仅占用一个reg(对于a.b.c.d这种解析过程中临时用到寄存器的，
+**        会释放占用临时寄存器，最后仅保留xxx.d这个最终结果占用的哪一个寄存器)
+**        不明白注释，用ChunkySpy运行一下func(a.b.c.d.f)就明白了
+**
+** 对(VCALL,VARGARG)暂定仅期待返回一个参数，这就是函数名中1的由来吧
+**   真正期待的返回参数个数的修正交由上层业务处理(eg:luaK_setmultret,  )
+*/
 static int explist1 (LexState *ls, expdesc *v) {
   /* explist1 -> expr { `,' expr } */
   int n = 1;  /* at least one expression */
@@ -803,7 +858,16 @@ static int explist1 (LexState *ls, expdesc *v) {
   return n;
 }
 
-
+/* 
+** !!!!!!!! KEYFUNCTION
+** 多多多多多读几遍代码，一定要测定弄懂本函数的设计思路和逻辑
+**
+** funcargs -> `(' [ explist1 ] `)' | constructor | STRING 
+** 
+** eg: fun(a,b,c,d)
+**   首先解析的是函数参数的exp,最后才是将整个函数调用表达式作为一个整体VCALL表达式的exp赋值给f
+**   (f对上是一个VCALL的exp来看待的),f作为exp的最终reg地址也就是函数名表达式的reg的地址(也就是传入的f->u.s.info的值)
+*/
 static void funcargs (LexState *ls, expdesc *f) {
   FuncState *fs = ls->fs;
   expdesc args;
@@ -818,7 +882,7 @@ static void funcargs (LexState *ls, expdesc *f) {
         args.k = VVOID;
       else {
         explist1(ls, &args);
-        luaK_setmultret(fs, &args);
+        luaK_setmultret(fs, &args);	/* 修正变参表达式的返回值个数：变参作为函数调用传入的最后一个参数时，期望返回全部参数 */
       }
       check_match(ls, ')', '(', line);
       break;
@@ -837,7 +901,10 @@ static void funcargs (LexState *ls, expdesc *f) {
       return;
     }
   }
+
+  /* 函数名必须已经解析完毕，已经在reg中了 */
   lua_assert(f->k == VNONRELOC);
+  
   base = f->u.s.info;  /* base register for call */
   if (hasmultret(args.k))
     nparams = LUA_MULTRET;  /* open call */
@@ -846,10 +913,37 @@ static void funcargs (LexState *ls, expdesc *f) {
       luaK_exp2nextreg(fs, &args);  /* close last argument */
     nparams = fs->freereg - (base+1);
   }
+  
+  /* C固定为2：表示期待单个返回值！,  如果不是单个，则需在上层逻辑中予以修正 
+  ** ！这里得知先生成的准备参数的指令，再生成的OP_CALL指令
+  */
   init_exp(f, VCALL, luaK_codeABC(fs, OP_CALL, base, nparams+1, 2));
+  
   luaK_fixline(fs, line);
+  
+  /* chunk函数中在解析完一个stat后会根据ls->fs->nactvar再一次调整fs->freereg 
+  **
+  ** funcargs:作为explist1的子域，这里默认要求返回一个返回值，和上面生成OP_CALL指令中的参数也是对应的
+  **   eg1:(请求返回单个值) a, b, c = fun(), g.h, i  这里+1，可以让g.h间接表达式的CP指令能放入到后一个free'reg中
+  ** 
+  **
+  **   eg2:(请求不要返回值) 如果是funA()
+  **          local b
+  **            这种不要任何返回值的情况，chunk()函数在编译本exp所在的stat后会再次调整fs->freereg（编译local b之前），
+  **            funA()被编译结束后随即回收了这里空出来的一个free'reg
+  **
+  **
+  **   eg3:(请求返回多个值) 如果要求funB返回多个，那么funcargs必然是作为explist1的最后一个参数,
+  **           后面不再跟随任何exp了，随着本exp所在的stat后chunk函数会 将freereg变量修正回来(也就不存在浪费)，
+  **           这一点eg2是一样的
+  **            	local tbl = {a, b, funM()}
+  **            	funA(b, funC())
+  **				funD(t,y,funI(funP()))
+  **          		local g
+  */
   fs->freereg = base+1;  /* call remove function and arguments and leaves
                             (unless changed) one result */
+  //printf("######### reg.idx(%d)\n", fs->freereg);							
 }
 
 
@@ -861,13 +955,7 @@ static void funcargs (LexState *ls, expdesc *f) {
 ** =======================================================================
 */
 
-/* 
-** prefixexp ::= var | functioncall | `(´ exp `)
-** var ::=  Name | prefixexp `[´ exp `]´ | prefixexp `.´ Name 
-** exp ::=  nil | false | true | Number | String | `...´ | function | 
-**	 prefixexp | tableconstructor | exp binop exp | unop exp 
-**
-*/
+
 static void prefixexp (LexState *ls, expdesc *v) {
   /* prefixexp -> NAME | '(' expr ')' */
   switch (ls->t.token) {
@@ -922,7 +1010,7 @@ static void primaryexp (LexState *ls, expdesc *v) {
         funcargs(ls, v);
         break;
       }
-      case '(': case TK_STRING: case '{': {  /* funcargs */
+      case '(': case TK_STRING: case '{': {  /* funcargs 函数调用 */
         luaK_exp2nextreg(fs, v);
         funcargs(ls, v);
         break;
@@ -932,7 +1020,7 @@ static void primaryexp (LexState *ls, expdesc *v) {
   }
 }
 
-
+/* 对表达式进行初始化，间接表达式则生成求src.val的指令, 等待回填dst.reg */
 static void simpleexp (LexState *ls, expdesc *v) {
   /* simpleexp -> NUMBER | STRING | NIL | true | false | ... |
                   constructor | FUNCTION body | primaryexp */
@@ -960,10 +1048,11 @@ static void simpleexp (LexState *ls, expdesc *v) {
     }
     case TK_DOTS: {  /* vararg */
       FuncState *fs = ls->fs;
+	  /* 在非变参函数内使用"变参"，明显是个错误 */
       check_condition(ls, fs->f->is_vararg,
                       "cannot use " LUA_QL("...") " outside a vararg function");
       fs->f->is_vararg &= ~VARARG_NEEDSARG;  /* don't need 'arg' */
-      init_exp(v, VVARARG, luaK_codeABC(fs, OP_VARARG, 0, 1, 0));
+      init_exp(v, VVARARG, luaK_codeABC(fs, OP_VARARG, 0, 1, 0));	/* 这里B=0，表示期待一个参数和funcall仅返回一个参数是一样的 */
       break;
     }
     case '{': {  /* constructor */
@@ -1044,8 +1133,9 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
     luaX_next(ls);
     subexpr(ls, v, UNARY_PRIORITY);
     luaK_prefix(ls->fs, uop, v);
+  } else {
+  	simpleexp(ls, v);
   }
-  else simpleexp(ls, v);
   
   /* expand while operators have priorities higher than `limit' */
   op = getbinopr(ls->t.token);
@@ -1053,9 +1143,20 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
     expdesc v2;
     BinOpr nextop;
     luaX_next(ls);
+	
+	/* a = b + c * d 解析操作符左边的表达式b
+	** 进入解析c表达式的操作前，将b表达式存一个档
+	*/
     luaK_infix(ls->fs, op, v);
-    /* read sub-expression with higher priority */
+	
+    /* read sub-expression with higher priority 
+    ** a = b + c * d
+    ** 对于c表达式而言， 有两个操作符在同一时间试图将其组合到自己麾下，一个是左边的加号，另外一个是右边的乘号
+    ** 对于加号而言，c在加号的右边，这里是.right的优先级，进入递归后,乘号是左边的.left优先级， 
+	*/
     nextop = subexpr(ls, &v2, priority[op].right);
+
+	/* 将b和(c*d)组合起来作为一个整体表达式返回给上层逻辑 */
     luaK_posfix(ls->fs, op, v, &v2);
     op = nextop;
   }
@@ -1078,15 +1179,13 @@ static void expr (LexState *ls, expdesc *v) {
 ** =======================================================================
 */
 
-/* repeat
-**   statements
-** until( condition )
-*/
-
+/* 紧接着出现的block是一个崭新的block吗 */
 static int block_follow (int token) {
-  switch (token) {	/* END和EOS还没理解 */
-    case TK_ELSE: case TK_ELSEIF: case TK_END:
-    case TK_UNTIL: case TK_EOS:
+  switch (token) {	
+    case TK_ELSE: case TK_ELSEIF: /* else, elseif 是一个新block的开始 */
+	case TK_UNTIL: 	/* REPEAT block UNTIL cond cond是一个新block的开始(和block没关系了) */
+	case TK_END:   	/* end表示块结束，后面当然是新block的开始 */
+    case TK_EOS:	/* 文件末尾了，当前块肯定结束了 */
       return 1;
     default: return 0;
   }
@@ -1119,6 +1218,10 @@ struct LHS_assign {
 ** is needed in a previous assignment (to a table). If so, save original
 ** local value in a safe place and use this safe copy in the previous
 ** assignment.
+**
+** local a, b = {}, 10
+** a[b], b = 20, 30
+** print(a[10], a[30])
 */
 static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v) {
   FuncState *fs = ls->fs;
@@ -1136,15 +1239,20 @@ static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v) {
       }
     }
   }
+  /* 将冲突的域单独拷贝一份出来 */
   if (conflict) {
     luaK_codeABC(fs, OP_MOVE, fs->freereg, v->u.s.info, 0);  /* make copy */
     luaK_reserveregs(fs, 1);
   }
 }
 
-
+/*
+** KEYCODE 
+** 多多多读几遍，一定要搞懂
+*/
 static void assignment (LexState *ls, struct LHS_assign *lh, int nvars) {
   expdesc e;
+  /* 对=左边的exp还是又类型要求的 */
   check_condition(ls, VLOCAL <= lh->v.k && lh->v.k <= VINDEXED,
                       "syntax error");
   if (testnext(ls, ',')) {  /* assignment -> `,' primaryexp assignment */
@@ -1164,18 +1272,27 @@ static void assignment (LexState *ls, struct LHS_assign *lh, int nvars) {
     if (nexps != nvars) {
       adjust_assign(ls, nvars, nexps, &e);
       if (nexps > nvars)
-        ls->fs->freereg -= nexps - nvars;  /* remove extra values */
+        ls->fs->freereg -= nexps - nvars;  /* remove extra values：右边的参数数量多余左边的，直接忽略 */
     }
-    else {
+    else {	/* eg: a = b, a = b(),=号左右两边相等且只有一个项的情况*/
+	  /* 变量和表达式数量相等，那么如果最后一个表达式是变参表达式，
+	  ** 则强制更新其期待的返回值个数为(多了也没用,少了也不行) 
+	  */
       luaK_setoneret(ls->fs, &e);  /* close last expression */
       luaK_storevar(ls->fs, &lh->v, &e);
       return;  /* avoid default */
     }
   }
-  init_exp(&e, VNONRELOC, ls->fs->freereg-1);  /* default assignment */
-  luaK_storevar(ls->fs, &lh->v, &e);
-}
 
+  /* default assignment: 这句话的意思是：构造一个默认的用于赋值的stat中exp(表达式对应的reg已准备妥当！) */
+  init_exp(&e, VNONRELOC, ls->fs->freereg-1);  
+  
+  /* 
+  ** !!!! 函数内部会自动缩减 --ls->fs->freereg  
+  ** 	  赋值表达式left=right中的right代表的reg.addr随着自动更新(从右边往左边一步一步移动)
+  */
+  luaK_storevar(ls->fs, &lh->v, &e);	
+}
 
 static int cond (LexState *ls) {
   /* cond -> exp */
@@ -1376,49 +1493,75 @@ static void ifstat (LexState *ls, int line) {
   check_match(ls, TK_END, TK_IF, line);
 }
 
-
+/* local function funName body */
 static void localfunc (LexState *ls) {
   expdesc v, b;
   FuncState *fs = ls->fs;
-  
-  /* local function funA(...) end 
-  ** 注册locvar(函数名)到Proto.nlocvars,填充name信息，建立fs->actvar[fs->nactvars]到p.nlocvars的映射
+
+/* step.1 处理local属性的函数名表达式 */
+  /* 注册函数名，意味着在funName函数中funName这个变量已经生效了
+  ** local function funName()
+  **	 	print(type(funName))  函数名funName在这里已可见，是一个UPVAL
+  ** end
   */
   new_localvar(ls, str_checkname(ls), 0);
-  
-  /* 给表达式填个初值先 */
+  /* 初始化函数名表达式 */
   init_exp(&v, VLOCAL, fs->freereg);
-  
-  /* 上面新增了一个locvar,用掉了一个freereg，这里扩大点maxstacksize, 更新freereg */
-  luaK_reserveregs(fs, 1);	/* reserve reg:准备寄存器 */
-
-  /* 更新fs->nactvar, 填充上面新增的p.nlocvars变量的startpc */
+  /* 上面新增了一个locvar，更新reg(消耗了一个reg) */
+  luaK_reserveregs(fs, 1);
+  /* 更新fs->nactvar, 更新上述actvar的startpc */
   adjustlocalvars(ls, 1);
-  
+
+
+/* step.2 处理local函数的定义业务 */
   body(ls, &b, 0, ls->linenumber);
+
+/* step.3 实现 local function funName body 中的业务逻辑：将函数定义赋值给funName */
   luaK_storevar(fs, &v, &b);
+
   
-  /* debug information will only see the variable after this point! */
+  /* debug information will only see the variable after this point! 这里更新了funName的startpc 
+  ** 上面设置funName.startpc以便函数名对于函数内部是可见的
+  ** 这里更新一次，以便调整调试器的可见域么？还不是太明白其用途
+  */
   getlocvar(fs, fs->nactvar - 1).startpc = fs->pc;
+  //luaG_printString("locavar.name:%s", (getlocvar(fs, fs->nactvar - 1).varname));
 }
 
-/* local varlist = explist1 */
 static void localstat (LexState *ls) {
   /* stat -> LOCAL NAME {`,' NAME} [`=' explist1] */
   int nvars = 0;
   int nexps;
   expdesc e;
   
-  do {	/* 登记左边的变量名到 Proto.locvars */
+  do {	
+  	/* 登记左边的变量名到 Proto.locvars,
+  	** 但尚未更新fs->nactvar变量，意味则未激活表达式左边的变量
+  	** eg local a = "hello"
+  	**    local a = a
+  	**    print(a)---->hello
+  	**    这里第二行查找右边的a时，左边的a尚未生效，那么往前找，找到了第一行的a,所以打印的是"hello"
+  	**    这一点和C语言不一样！
+  	*/
     new_localvar(ls, str_checkname(ls), nvars++);
   } while (testnext(ls, ','));
   
   if (testnext(ls, '='))
     nexps = explist1(ls, &e);	/* 解析表达式 */
   else {
-    e.k = VVOID;
+    e.k = VVOID;	/* local a, b 这种情况 */
     nexps = 0;
   }
+  
+  /* 
+  ** local a,b = c
+  ** 左边多出来的变量 adjust_assign函数给右边自动补nil
+  ** local a, b = c.d, e.g, h.i
+  **    右边多占用的reg,在本stat编译结束后chunk()函数会自动回收，所以(stack上有数据残留哦！)
+  **    不过残留的数据对后续不会有影响(编译器不会假设stack上的slot默认是nil,这边从本函数给左边的变量补nil值就能知道了)
+  **    再回过头看 luaK_nil 函数，知道为什么有 fs->pc == 0那个条件判断了吧(有一点点理解作者的用意了吧！！)
+  **
+  */
   adjust_assign(ls, nvars, nexps, &e);
   adjustlocalvars(ls, nvars);
 }
@@ -1437,15 +1580,21 @@ static int funcname (LexState *ls, expdesc *v) {
   return needself;
 }
 
-
+/* 全局函数定义的stat, 对照 localfunc函数看 */
 static void funcstat (LexState *ls, int line) {
   /* funcstat -> FUNCTION funcname body */
   int needself;
   expdesc v, b;
+  
   luaX_next(ls);  /* skip FUNCTION */
+  /* 处理变量名是一个全局值(不是VLOCAL）表达式，故这里没有localfunc中特有的注册localvar的逻辑 */
   needself = funcname(ls, &v);
+  
   body(ls, &b, needself, line);
+
+  /* 将函数值拷贝到变量名中 */
   luaK_storevar(ls->fs, &v, &b);
+  
   luaK_fixline(ls->fs, line);  /* definition `happens' in the first line */
 }
 
@@ -1456,7 +1605,7 @@ static void exprstat (LexState *ls) {
   struct LHS_assign v;
   primaryexp(ls, &v.v);
   if (v.v.k == VCALL)  /* stat -> func */
-    SETARG_C(getcode(fs, &v.v), 1);  /* call statement uses no results */
+    SETARG_C(getcode(fs, &v.v), 1);  /* call statement uses no results:直接忽略返回值 */
   else {  /* stat -> assignment */
     v.prev = NULL;
     assignment(ls, &v, 1);
@@ -1529,10 +1678,6 @@ static int statement (LexState *ls) {
     case TK_LOCAL: {  /* stat -> localstat */
       luaX_next(ls);  /* skip LOCAL */
       if (testnext(ls, TK_FUNCTION))  /* local function? */
-	  	/*
-	  	** local function funName()
-	  	** end
-	  	*/
         localfunc(ls);	
       else
         localstat(ls);
@@ -1557,7 +1702,7 @@ static int statement (LexState *ls) {
 
 static void chunk (LexState *ls) {
   /* chunk -> { stat [`;'] } */
-  int islast = 0;
+  int islast = 0;	/* break和return 只能是chunk的最后一个op */
   enterlevel(ls);
   while (!islast && !block_follow(ls->t.token)) {
     islast = statement(ls);

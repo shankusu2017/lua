@@ -82,7 +82,38 @@ int t_exe_lua(lua_State *vm) {
 //     printf("cnt:%d");
 // }
 
+int lluaO_int2fb (unsigned int x) {
+  int e = 0;  /* expoent(指数) */
+  while (x >= 16) {
+    x = (x+1) >> 1;
+    e++;
+  }
+  if (x < 8) return x;
+  else return ((e+1) << 3) | ((int)x - 8);
+}
+
+
+/* converts back */
+ int lluaO_fb2int (int x) {
+  int e = (x >> 3) & 31;
+   if (e == 0) return x;
+   else return ((x & 7)+8) << (e - 1);
+ }
+
 int main(int argc, char *argv[]) {
+    {
+      int fff;
+      int hfesef;
+      int testarr[100];
+      int actb = 100;
+      {
+        int actb = actb;
+        int test = actb;
+        int test2  = actb;
+      }
+    }
+    int ret1 = lluaO_int2fb(31);
+    int ret2 = lluaO_fb2int(ret1);
     // {
     //     int cnt = 0;
     //     pp(cnt++);
@@ -119,7 +150,7 @@ int main(int argc, char *argv[]) {
 
    int ret = 0;
    printf("load lua.script\n");
-   ret = loadFile(vm, "../script/opcode.lua");
+   ret = loadFile(vm, "../script/pc.lua");
    if (0 != ret) {
        printf("load file fail, ret(%d)", ret);
        return -2;

@@ -337,7 +337,9 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     ci->tailcalls = 0;
     ci->nresults = nresults;
 	
-	/* 新的函数的私有栈空间直接补nil(参数的区域除外) */
+	/* 新的函数的私有栈空间直接补nil(参数的区域除外),                    
+	** 编译模块中的 lcode.c 中的 luaK_nil 函数默认这一点！！！！！！！！ 
+	*/
     for (st = L->top; st < ci->top; st++)
       setnilvalue(st);	
 

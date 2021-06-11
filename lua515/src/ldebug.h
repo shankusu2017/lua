@@ -9,6 +9,7 @@
 
 
 #include "lstate.h"
+#include "llex.h"
 
 
 #define pcRel(pc, p)	(cast(int, (pc) - (p)->code) - 1)
@@ -30,5 +31,7 @@ LUAI_FUNC void luaG_errormsg (lua_State *L);
 LUAI_FUNC int luaG_checkcode (const Proto *pt);
 LUAI_FUNC int luaG_checkopenop (Instruction i);
 LUAI_FUNC void luaG_printf(char *fmt, TValue *v);
+LUAI_FUNC void luaG_printString(char *fmt, TString *v);
+LUAI_FUNC void luaG_printToken(LexState *ls, int token);
 
 #endif

@@ -12,7 +12,7 @@
 #include "lzio.h"
 
 
-/*************************************************************************
+/**************************** 官方的BNF **********************************
 chunk ::= {stat [`;´]} [laststat [`;´]]
 
 block ::= chunk
@@ -72,6 +72,89 @@ unop ::= `-´ | not | `#´
 
 **************************************************************************/
 
+
+
+/**************************** 自己总结的BNF **********************************
+chunk ::= {stat [`;´]}
+
+block ::= chunk
+
+stat ::=  
+	 ifstat | 
+	 whilestat | 
+	 DO block END | 
+	 forstat | 
+	 repeat | 
+	 funcstat | 
+	 localstat |
+	 retstat |
+	 breaksat |
+	 exprstat
+
+localstat  	::= local fun | localstat‘
+localstat' 	::= LOCAL NAME {`,´ NAME } [`=´ explist1]
+
+explist1   	::= expr { `,' expr }
+
+expr 		::= subexpr
+
+subexpr 	::= (simpleexp | unop subexpr) { binop subexpr }
+
+simpleexp 	::= NUMBER | STRING | NIL | true | false | ... |
+                  constructor | FUNCTION body | primaryexp
+
+primaryexp 	::= prefixexp { `.' NAME | `[' expr `]' | `:' NAME funcargs | funcargs }
+
+prefixexp 	::= NAME | '(' expr ')'
+
+funcargs 	::= `(' [ explist1 ] `)' | constructor | STRING
+
+exprstat    := func | assignment
+
+assignment 	::= `,' primaryexp assignment |  `=' explist1 
+
+ifstat 		::= IF cond THEN block {ELSEIF cond THEN block} [ELSE block] END
+
+cond 		::= expr
+
+test_then_block :: [IF | ELSEIF] cond THEN block
+
+whilestat 	::= WHILE cond DO block END
+
+repeatstat 	:: REPEAT block UNTIL cond
+
+forstat 	::= FOR (fornum | forlist) END
+
+fornum 		::= NAME = exp1,exp1[,exp1] forbody
+
+forlist 	::= NAME {,NAME} IN explist1 forbody
+
+forbody 	::= DO block
+
+funcstat 	::= FUNCTION funcname body
+
+funcname 	::= NAME {field} [`:' NAME]
+
+field 		::= ['.' | ':'] NAME 
+
+body 		::=  `(' parlist `)' chunk END
+
+parlist 	:: [ param { `,' param } ] 
+param 		::= NAME | ...
+
+constructor ::= {recfield|listfield}
+
+recfield 	::= (NAME | `['exp1`]') = exp1
+
+listfield   ::= exp1
+
+exp1        ::= (exp)   ?
+
+
+retstat ::= RETURN explist
+
+**************************************************************************/
+
 /*
 ** Expression descriptor
 ** 表达式的"类型"
@@ -99,12 +182,12 @@ typedef enum {
   /* 跳转表达式，常用于关系表达式 */
   VJMP,			/* info = instruction pc */
 
-  /* 目标reg尚未确定，可以放在栈的任意位置，只要能访问到
+  /* 表达式尚未加载到reg（目标reg尚未确定，可以放在栈的任意位置，只要能访问到）
   ** info:本指令在指令数组中的索引，方便后面回填本指令的目标地址寄存器(R(A))
   */
   VRELOCABLE,	/* info = instruction pc */
 
-  /* 表达式的原值或目标值已在寄存器上,info:表示对应寄存器的idx */
+  /* 表达式的值已被加载到reg中了，info:对应寄存器的idx */
   VNONRELOC,	/* info = result register */
   
   VCALL,		/* info = instruction pc: info表示exp对应的指令在指令f的指令数组中的下标，下同 */
@@ -123,7 +206,11 @@ typedef struct expdesc {
 
 
 typedef struct upvaldesc {
+  /* VLOCAL则表示在父closure的actvar中找到，可以用OP_MOVE指令
+  ** VUPVAL 则需OP_GETUPVAL指令
+  */
   lu_byte k;
+  
   lu_byte info;
 } upvaldesc;
 
@@ -144,9 +231,9 @@ typedef struct FuncState {
   Proto *f;  			/* current function header */
   
   struct BlockCnt *bl;  /* chain of current blocks */
-  int pc;  				/* next position to code (equivalent to `ncode') */
+  int pc;  				/* 指向:下一个待生成的指令 next position to code (equivalent to `ncode') */
   int lasttarget;   	/* `pc' of last `jump target' */
-  int jpc;  			/* list of pending jumps to `pc' */
+  int jpc;  			/* list of pending jumps to `pc'：指向下一个待生成的指令的待回填的跳转链表 */
 
 
   /* 存储常量kvar在对应的 Proto.k 常量数组中的下标的映射表 

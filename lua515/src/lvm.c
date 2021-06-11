@@ -772,7 +772,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
           n = cast_int(L->top - ra) - 1;	/* 计算确切的参数个数 */
           L->top = L->ci->top;	/* OP_VARARG指令L->top已经指向了{...}不定参数的最后一个slot的位置以便求n,这里将其复原 */
         }
-        if (c == 0) c = cast_int(*pc++);	/* 这行代码最好有个印象 */
+        if (c == 0) c = cast_int(*pc++);	/* 这行代码最好有个印象,具体的出处在 luaK_setlist()函数中 */
         runtime_check(L, ttistable(ra));	/* 编译模块出错了 */
         h = hvalue(ra);
         last = ((c-1)*LFIELDS_PER_FLUSH) + n;	/* 计算当前能确定的数组下标的最大值 */
@@ -799,7 +799,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         nup = p->nups;
         ncl = luaF_newLclosure(L, nup, cl->env);
         ncl->l.p = p;
-		/* 下面的block尚未完全看懂 */
+		/* 结合 singlevaraux, pushclosure,函数一起看 */
         for (j=0; j<nup; j++, pc++) {
           if (GET_OPCODE(*pc) == OP_GETUPVAL)
             ncl->l.upvals[j] = cl->upvals[GETARG_B(*pc)];

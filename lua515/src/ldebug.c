@@ -653,6 +653,8 @@ LUAI_FUNC void luaG_printf(char *fmt, TValue *v) {
   char fmtBuf[1024] = {0};
   char outBuf[2028] = {0};
 
+  printf("luaG_printf.recv.v.type(%d)", ttype(v));
+
   switch ttype(v) {
     case LUA_TNIL:
       sprintf(fmtBuf, " t(%s).v(nil)\n", luaT_typenames[ttype(v)], NULL);
@@ -673,3 +675,19 @@ LUAI_FUNC void luaG_printf(char *fmt, TValue *v) {
 
   printf("%s %s", fmt, fmtBuf);
 }
+
+LUAI_FUNC void luaG_printString(char *fmt, TString *v) {
+  char fmtBuf[1024] = {0};
+
+  sprintf(fmtBuf, " %s\n", getstr(v));
+
+  printf(fmt, fmtBuf);
+}
+
+LUAI_FUNC void luaG_printToken(LexState *ls, int token)
+{
+	//printf("token[%s]\n", luaX_token2str(ls, token));
+  //printf("token[%s]\n", luaX_token2string(ls, token));
+  printf(" %s", luaX_token2string(ls, token));
+}
+

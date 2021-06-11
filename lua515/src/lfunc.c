@@ -67,12 +67,18 @@ UpVal *luaF_findupval (lua_State *L, StkId level) {
     }
     pp = &p->next;
   }
+
+  /* upval "第一次被出现" */
   uv = luaM_new(L, UpVal);  /* not found: create a new one */
   uv->tt = LUA_TUPVAL;
   uv->marked = luaC_white(g);
   uv->v = level;  /* current value lives in the stack */
+
+  /* 挂到G.openupval的gc链表上 */
   uv->next = *pp;  /* chain it in the proper position */
   *pp = obj2gco(uv);
+
+  /* 挂到环形双向列表上 */
   uv->u.l.prev = &g->uvhead;  /* double link it in `uvhead' list */
   uv->u.l.next = g->uvhead.u.l.next;
   uv->u.l.next->u.l.prev = uv;

@@ -22,6 +22,7 @@
 #include "lstring.h"
 #include "ltable.h"
 #include "lzio.h"
+#include "ldebug.h"
 
 
 
@@ -97,6 +98,12 @@ static const char *txtToken (LexState *ls, int token) {
       return luaX_token2str(ls, token);
   }
 }
+
+LUAI_FUNC const char *luaX_token2string (LexState *ls, int token)
+{
+	return txtToken(ls, token);
+}
+
 
 
 void luaX_lexerror (LexState *ls, const char *msg, int token) {
@@ -485,6 +492,8 @@ void luaX_next (LexState *ls) {
   }
   else /* 读取一个token */
     ls->t.token = llex(ls, &ls->t.seminfo);  /* read next token */
+  
+  luaG_printToken(ls, ls->t.token);
 }
 
 /* 往前读取一个token的数据存到ls->lookahead.token上，供parser提前做决策

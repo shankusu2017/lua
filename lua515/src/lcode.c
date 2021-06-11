@@ -28,9 +28,11 @@
 /* e的类型 expdesc */
 #define hasjumps(e)	((e)->t != (e)->f)
 
-/* 仅仅e->k == VKNUM 还不够么？ */
+
 static int isnumeral(expdesc *e) {
-  return (e->k == VKNUM && e->t == NO_JUMP && e->f == NO_JUMP);
+  return (e->k == VKNUM &&	/* 仅仅e->k == VKNUM 不够么？ */
+		  	e->t == NO_JUMP &&
+		  	e->f == NO_JUMP);
 }
 
 /* 给连续的变量赋nil
@@ -41,7 +43,10 @@ void luaK_nil (FuncState *fs, int from, int n) {
   Instruction *previous;
   if (fs->pc > fs->lasttarget) {  /* no jumps to current position? */
     if (fs->pc == 0) {  /* function start? */
-      if (from >= fs->nactvar)  /* 新调用一个fun时，其私有stack默认会被置NULL，这种情况直接使用默认的NULL即可 */
+	  /* 新调用一个fun时，其私有stack默认会被置NULL，这种情况直接使用默认的NULL即可 ldo.c 中的 luaD_precall 函数保证了这一点-
+      ** 函数运行过程中stack可能会有残留的数据，不能认为残留下来的数值是NIL（编译器不保证这一点）
+	  */
+      if (from >= fs->nactvar) 
         return;  /* positions are already clean */
     }
     else {
@@ -60,9 +65,10 @@ void luaK_nil (FuncState *fs, int from, int n) {
   luaK_codeABC(fs, OP_LOADNIL, from, from+n-1, 0);  /* else no optimization */
 }
 
-/* 无条件跳转
+/* 
 ** OP_JMP sBx PC += sBx
-** TODOLOOK
+**
+** 待回填的跳转链表指向我，而我又指向其它pc，那么将上述链表和我串联在一起即可
 */
 int luaK_jump (FuncState *fs) {
   int jpc = fs->jpc;  /* save list of jumps to here */
@@ -86,7 +92,7 @@ static int condjump (FuncState *fs, OpCode op, int A, int B, int C) {
   return luaK_jump(fs);
 }
 
-/* 知道跳转指令pc的目的地dest之后，回填pc的sBx域 */
+/* 将待回填的跳转指令pc指向dest */
 static void fixjump (FuncState *fs, int pc, int dest) {
   Instruction *jmp = &fs->f->code[pc];
   /* 下面计算跳转指令的跳转目标绝对值时也加了1，和这里是一致的 */
@@ -100,7 +106,7 @@ static void fixjump (FuncState *fs, int pc, int dest) {
 
 /*
 ** returns current `pc' and marks it as a jump target (to avoid wrong
-** optimizations with consecutive instructions not in the same basic block).
+** optimizations(优化) with consecutive(连续) instructions not in the same basic block).
 */
 int luaK_getlabel (FuncState *fs) {
   fs->lasttarget = fs->pc;
@@ -157,7 +163,11 @@ static void removevalues (FuncState *fs, int list) {
       patchtestreg(fs, list, NO_REG);
 }
 
-/* 将待跳转的列表上的指令的目标地址sBx修正到dst上 */
+/* 
+** 回填跳转指令链表上的指令到指定目标
+**
+** 将待回填跳转指令列表list上指令的跳转参数sBx更新到target上 
+*/
 static void patchlistaux (FuncState *fs, int list, int vtarget, int reg,
                           int dtarget) {
   while (list != NO_JUMP) {
@@ -170,10 +180,10 @@ static void patchlistaux (FuncState *fs, int list, int vtarget, int reg,
   }
 }
 
-
+/* 将待回填的跳转到当前指令的跳转链表上的跳转指令的sBx更新为fs->pc */
 static void dischargejpc (FuncState *fs) {
   patchlistaux(fs, fs->jpc, fs->pc, NO_REG, fs->pc);
-  fs->jpc = NO_JUMP;
+  fs->jpc = NO_JUMP;	/* 置空 */
 }
 
 
@@ -186,23 +196,26 @@ void luaK_patchlist (FuncState *fs, int list, int target) {
   }
 }
 
-
+/* 将待回填的跳转指令链表list挂到fs->jpc,等生成下一条指令时回填sBx */
 void luaK_patchtohere (FuncState *fs, int list) {
   luaK_getlabel(fs);
   luaK_concat(fs, &fs->jpc, list);
 }
 
-/*  */
+/*  l1.sBx = l2 
+** 将l2指向的待回填跳转指令/指令链表挂到l1的跳转链表上
+*/
 void luaK_concat (FuncState *fs, int *l1, int l2) {
-  if (l2 == NO_JUMP) return;
+  if (l2 == NO_JUMP) /* l2不是一条跳转指令，直接返回 */
+  	return;
   else if (*l1 == NO_JUMP)	/* 当前跳转列表为空 */
-    *l1 = l2;
+    *l1 = l2;	/* l1尚未初始化，直接赋值即可 */
   else {
     int list = *l1;
     int next;
     while ((next = getjump(fs, list)) != NO_JUMP)  /* find last element */
       list = next;
-    fixjump(fs, list, l2);
+    fixjump(fs, list, l2);	/* 将待回填的跳转指令链表l2挂到l1的末尾 */
   }
 }
 
@@ -217,7 +230,6 @@ void luaK_checkstack (FuncState *fs, int n) {
 }
 
 /* reserve reg:预定 寄存器 实际上是占用n个寄存器的意思
-** freereg+=n，调整maxstatcksize至相同至
 */
 void luaK_reserveregs (FuncState *fs, int n) {
   luaK_checkstack(fs, n);
@@ -228,28 +240,24 @@ void luaK_reserveregs (FuncState *fs, int n) {
 static void freereg (FuncState *fs, int reg) {
   if (!ISK(reg) &&            /* 常量的就不用释放了，压根没占用reg */
       reg >= fs->nactvar) {   /* reg从0开始，nactvar从1开始，所以这里reg>=fs->nactvar是可以的
+      
   	/* 释放一个reg后,reg==fs->freereg:确保只能释放最新一个被激活的reg(作为exp的临时reg占用？) */
     fs->freereg--;
     lua_assert(reg == fs->freereg);
   }
 }
 
-/* 
-** 如果exp对应的reg已确定，且占用了临时reg，则释放reg？
-** local a
-** local b = a
-** local c = fun(), d
-*/
+/* 释放被临时占用的reg */
 static void freeexp (FuncState *fs, expdesc *e) {
-  /* 对于第二行a作为exp且已经确定了是LOCVAR,那么它作为exp占用的临时reg就不需要了
-  ** 直接引用其locvar对应的reg即可，这里将作为exp临时占用的reg释放 
-  ** 另外一种情况就是第三行所示，函数调用结束后，？？？？？好像没有理解透彻哦（相关函数luaK_dischargevars()）
-  */
-  if (e->k == VNONRELOC)
+  if (e->k == VNONRELOC)		/* 表达式的值已被CP_XXX到reg中的，才释放 (还没加载到reg，那压根没占用reg，释放个锤子*/
     freereg(fs, e->u.s.info);	/* VNONRELOC info = result register */ 
 }
 
-/* local kvar = "hello" k=v="hello" */
+/*
+** 将常量加载到fs->f的常量表中
+**
+** local var = "hello" 则本函数的k,v="hello" 
+*/
 static int addk (FuncState *fs, TValue *k, TValue *v) {
   lua_State *L = fs->L;
   TValue *idx = luaH_set(L, fs->h, k);
@@ -270,7 +278,7 @@ static int addk (FuncState *fs, TValue *k, TValue *v) {
   }
 }
 
-/* 返回字符串常量在常量表中的idx */
+/* 将字符串常量加载到fs->f的常量表中 */
 int luaK_stringK (FuncState *fs, TString *s) {
   TValue o;
   setsvalue(fs->L, &o, s);
@@ -300,9 +308,10 @@ static int nilK (FuncState *fs) {
   return addk(fs, &k, &v);
 }
 
-/* nresults:-1, C=0，表示希望返回变参
-** nresults: 0, C=1, 表示希望返回0个参数
-** nresults: 2, C=2, 表示希望返回1个参数
+/* nresults:-1, C=0，希望返回变参
+** nresults: 0, C=1, 希望返回0个参数
+** nresults: 1, C=2, 希望返回1个参数
+** nresults: 2, C=3, 希望返回2个参数
 */
 void luaK_setreturns (FuncState *fs, expdesc *e, int nresults) {
   /* OP_CALL A B C 		R(A), … ,R(A+C-2) := R(A)(R(A+1), … ,R(A+B-1)) */
@@ -311,22 +320,26 @@ void luaK_setreturns (FuncState *fs, expdesc *e, int nresults) {
   }
   else if (e->k == VVARARG) {
   	/* OP_VARARG A B 	R(A), R(A+1), ..., R(A+B-1) = vararg 
-  	** 将变参拷贝到RA指定的寄存器开始的地方，拷贝B个元素，这里仅使用了一个寄存器的编码
+  	** 将变参拷贝到RA指定的寄存器开始的地方，拷贝B个元素，这里仅使用了一个寄存器的编码?
   	*/
     SETARG_B(getcode(fs, e), nresults+1);
-	/* !!!! 不同于VCALL，这里占用了一个reg */
     SETARG_A(getcode(fs, e), fs->freereg);
     luaK_reserveregs(fs, 1);
   }
 }
 
-
+/* 对于可能返回变参的表达式，强制其仅返回一个值 */
 void luaK_setoneret (FuncState *fs, expdesc *e) {
   if (e->k == VCALL) {  /* expression is an open function call? */
   	/* A B C R(A), … ,R(A+C-2) := R(A)(R(A+1), … ,R(A+B-1)) */
   
-  	/* 函数调用返回的第一个值占用的reg就是函数指针本身占用的reg,
-  	** 不能返回到其它地方，故而这里是VNONRELOC
+  	/* 
+  	** 在解析funcarg表达式完毕后，OP_CALL指令已生成，A,B,C三个参数也填充完毕(A参数在解析完函数名后即确定了),
+  	** 根据OP_CALL的含义“整个表达式”在寄存器中的reg.addr就是R(A),理解这一点就好立即luaK_setoneret函数了
+  	**
+  	** 函数调用完毕后，函数调用作为一个表达式整体，返回一个值，占用函数句柄原本占用的reg
+  	** 函数调用返回的第一个值占用的reg就是函数指针本身占用的reg
+  	** 同时e.u.s.info = R(A)也是基于这个道理
   	*/
     e->k = VNONRELOC;	
     e->u.s.info = GETARG_A(getcode(fs, e));
@@ -337,16 +350,24 @@ void luaK_setoneret (FuncState *fs, expdesc *e) {
   }
 }
 
-/* discharge:释放
-** 进一步确定表达式的(src源寄存器)信息(用于对表达式进一步求值)，以便下一步将表达式赋值给dst=src用
+
+/* 
+** LOAD_XXX 生成对间接表达式的求值指令 (VCALL, VARGVAR这里强制返回1个值, 需返回多个值的在上层业务中进行修正) 
 **
-** 根据表达式的值(VLOCAL, VUPVAL...)类型，确定其寄存器类型(VNONRELOC或者VRELOCABLE)和
-**     指令的位置(对于需要重定位的VRELOCABLE)
-**  
+** cond.1 对"直接表达式"(VNIL,VTRUE,VFALSE,VKNUM,VK)，不做处理
+**            (直接表达式可以一步生成load_xxx指令到目的寄存器)
+**
+** cond.2 对"值已在reg数组中的表达式"(VLOCAL, VCALL), e->k = VNONRELOC, 
+**             表示其值已经在reg数组中了，后续可以直接用e->u.s.info取其地址
+**
+** cond.3 对"间接表达式"(VINDEXED, VGLOBAL, VUPVAL)，生成取值指令get_xxx, e->k = VRELOCABLE
+**			   表示其值已计算完毕，等待回填其目标寄存器
+**
+** cond.4 VARGVAR表达式的值已在reg中，等待回填目标寄存器 e->k = VRELOCABLE
 */
 void luaK_dischargevars (FuncState *fs, expdesc *e) {
   switch (e->k) {
-    case VLOCAL: {	/* 本地变量占用的reg已确定了，故而这里是VNONRELOC */
+    case VLOCAL: {	/* exp.src已在reg中，故而这里是VNONRELOC */
       e->k = VNONRELOC;
       break;
     }
@@ -361,7 +382,9 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
       break;
     }
     case VINDEXED: {	/* OP_GETTABLE A B C R(A) := R(B)[RK(C)] */
-	  /* !!这里是依次释放的 */
+	  /* !!这里是依次释放的
+	  ** a.b.c.d.e... 释放a.b.c.d之前占用的reg,以便重利用reg
+	  */
       freereg(fs, e->u.s.aux);
       freereg(fs, e->u.s.info);
 	
@@ -372,6 +395,9 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
     }
     case VVARARG:
     case VCALL: {
+	  /* VCALL 在解析call表达式时，OP_CALL指令已生成，A,B,C三个参数也填充完毕,根据OP_CALL的含义
+	  ** 表达式在寄存器中的reg.addr就是R(A),理解这一点就好立即luaK_setoneret函数了
+	  */
       luaK_setoneret(fs, e);
       break;
     }
@@ -405,12 +431,36 @@ static int code_label (FuncState *fs, int A, int b, int jump) {
   return luaK_codeABC(fs, OP_LOADBOOL, A, b, jump);
 }
 
-/* discharge:释放    将exp放到指定的寄存器上? */
+/* 
+** CP_XXX拷贝指令(reg = e) 拷贝表达式的值到指定的目的寄存器(reg(dst) = exp(src),
+**    						最后 e.k = NONRELOC
+**							     e.u.s.info = reg
+**
+** cond.1 对"直接表达式"(VNIL,VTRUE,VFALSE,VKNUM,VK)直接按照reg的目的地生成求值指令(load_xx)
+**
+** cond.2 对"值已在reg数组中的表达式"(VLOCAL, VCALL)按照reg的目的地生成op_move指令
+**        对"VARGVAR"直接回填其目的寄存器
+**
+** cond.3 对"间接表达式"(VINDEXED, VGLOBAL, VUPVAL)先生成计算其值到free'reg的指令(get_xxx)
+**		  	再回填上述get_xxx指令的目的reg为指定的reg
+**
+** 参考init_exp 和 luaK_dischargevars函数来理解本函数
+*/
 static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
+  /* 
+  ** cond.1 对"间接表达式"(VINDEXED, VGLOBAL, VUPVAL)生成计算其值到free'reg的指令(get_xxx)，同时e->k = VRELOCABLE
+  **            表示表达式原值的计算指令以生成，需回填目标地址
+  ** cond.2 对已在reg数组中的"reg表达式"(VLOCAL,VCALL)更新e->k = VNONRELOC(VCALL还需e->u.s.info=RA)
+  */
   luaK_dischargevars(fs, e);
-  /* 参考 init_exp 和 luaK_dischargevars函数来理解本函数 */
+  
+  /*
+  ** cond.1 对"直接表达式"(VNIL,VTRUE,VFALSE,VKNUM,VK)直接按照reg的目的地生成求值指令(load_xx)
+  ** cond.2 对"reg表达式"(VNONRELOC)按照reg的目的地生成赋值指令(op_move)
+  ** cond.3 对"间接表达式"(VRELOCABLE)回填其目的寄存器参数RA
+  */
+  
   switch (e->k) {
-  	
   	/* 表达式的值是常值, 这里生成指令并回填R(A) */
     case VNIL: {
       luaK_nil(fs, reg, 1);
@@ -420,7 +470,7 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
       luaK_codeABC(fs, OP_LOADBOOL, reg, e->k == VTRUE, 0);
       break;
     }
-	
+
 	/* 表达式的值在e->u.s.info：常量表中，这里提出来，生成指令并回填R(A)                       */
     case VK: {
 	  /* reg：指令的目标寄存器RA, e->u.s.info:指令中常量exp在常量表中的索引 */
@@ -439,9 +489,9 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
       SETARG_A(*pc, reg);
       break;
     }
-	/* 表达式的值已确定，生成OP_MOVE指令，回填R(A)=R(B)中的即可 */
+	/* 表达式e的值已确定且在reg中了，生成OP_MOVE指令，完成R(A)=R(B)逻辑 */
     case VNONRELOC: {
-      if (reg != e->u.s.info)
+      if (reg != e->u.s.info) /* 对于 a = a 这种无效的操作的优化 */
         luaK_codeABC(fs, OP_MOVE, reg, e->u.s.info, 0);
       break;
     }
@@ -457,7 +507,7 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
   e->k = VNONRELOC;
 }
 
-
+/* 对 非已经CP_XXX到寄存器上的表达式(即：不是VNONRELOC表达式），生成CP_XXX指令到next.free.reg */
 static void discharge2anyreg (FuncState *fs, expdesc *e) {
   if (e->k != VNONRELOC) {
     luaK_reserveregs(fs, 1);
@@ -465,9 +515,9 @@ static void discharge2anyreg (FuncState *fs, expdesc *e) {
   }
 }
 
-
+/* dst=src CP_XXX指令，将表达式的值拷贝给指定的寄存器reg, 参考 discharge2reg 函数注释*/
 static void exp2reg (FuncState *fs, expdesc *e, int reg) {
-
+  /* 将表达式的src.val赋值给dst(reg) */
   discharge2reg(fs, e, reg);
   
   if (e->k == VJMP)
@@ -488,12 +538,15 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
   }
   
   e->f = e->t = NO_JUMP;
-  /* 表达式对应的reg已确定下来，不用再修改此expdesc的reg信息了 */
+  /* 经过dst.(reg) = src.val 后，表达式的值已在寄存器中且地址是reg */
   e->u.s.info = reg;
   e->k = VNONRELOC;
 }
 
-/* ！！！！注释不保证100%正确 */
+/* 
+** CP_XXX 拷贝指令 next'free.reg = exp 
+** 确定next'free'reg前尝试释放空闲的reg，注释参考 exp2reg , discharge2reg
+*/
 void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
   /* 
   ** 更新exp的reg或者op信息
@@ -501,39 +554,59 @@ void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
   */
   luaK_dischargevars(fs, e);
 
-  /* 释放占用的临时reg */
+  /* 释放特定条件下的被临时占用的reg */
   freeexp(fs, e);
   
-  /* 申请一个reg，并将exp赋值到reg上? */
+  /* 申请一个reg，并将exp赋值到reg上 */
   luaK_reserveregs(fs, 1);
   exp2reg(fs, e, fs->freereg - 1);
 }
 
-
+/* 
+** LOAD_XXX 加载指令 将"常量表达式"，"间接表达式", "VVARARG" 加载到next'free'reg中
+**
+** 将表达式的值加载到寄存器中(eg:VGLOBAL, VINDEXED)
+** 已加载到reg中的则无需此步骤(VNONRELOC)),
+**
+** RETURNS:寄存器地址 
+*/
 int luaK_exp2anyreg (FuncState *fs, expdesc *e) {
+  /* 对表达式生成估值指令 */
   luaK_dischargevars(fs, e);
-  if (e->k == VNONRELOC) {
+  if (e->k == VNONRELOC) {	/* e的src.val已在reg中，则直接返回对应的reg */
     if (!hasjumps(e)) return e->u.s.info;  /* exp is already in a register */
     if (e->u.s.info >= fs->nactvar) {  /* reg. is not a local? */
       exp2reg(fs, e, e->u.s.info);  /* put value on it */
       return e->u.s.info;
     }
   }
+  
+  /* e的src值还不在reg则将其存入reg */
   luaK_exp2nextreg(fs, e);  /* default */
   return e->u.s.info;
 }
 
-
+/* 类似 LOAD_XXX 生成表达式的加载指令(！！！！不是CP_XXX拷贝一份e的值到reg的拷贝指令) */
 void luaK_exp2val (FuncState *fs, expdesc *e) {
   if (hasjumps(e))
-    luaK_exp2anyreg(fs, e);
+    luaK_exp2anyreg(fs, e);	/* 求解表达式的src.val后，将表达式的值放到下一个free.reg中 */
   else
-    luaK_dischargevars(fs, e);
+    luaK_dischargevars(fs, e);	/* 对间接表达式（原值不在reg中或不是直接值的）生成求值指令 */
 }
 
-/* 尝试进一步确定表达式的src值的指令 */
+/* 
+** LOAD_XXX 加载指令 将表达式的值加载到next’free’reg中
+** "VK常量表达式" 							 直接返回其常量表索引
+** "VLOCAL,VCALL,VNONRELOC寄存器表达式"        直接返回其寄存器地址
+** "VINDEXED,VUPVAL,VGLOBAL,VARGVAR"     生成求值指令并加载到next'free'reg中
+**
+** RETURNS: 表达式最终的RK索引
+*/
 int luaK_exp2RK (FuncState *fs, expdesc *e) {
+  /* 对[间接]表达式e生成求值指令 */
   luaK_exp2val(fs, e);
+
+  /* e是常量表达式，无需生成求值指令，直接返回常量表中对应的索引即可 */
   switch (e->k) {
     case VKNUM:
     case VTRUE:
@@ -555,31 +628,37 @@ int luaK_exp2RK (FuncState *fs, expdesc *e) {
     }
     default: break;
   }
-  /* not a constant in the right range: put it in a register */
+  
+  /* not a constant in the right range: put it in a register 
+  **
+  ** 间接表达式(非常量表达式)，将其src.val赋值到下一个free.reg中
+  */
   return luaK_exp2anyreg(fs, e);
 }
 
-/* 存储一个值到变量或变量表达式中，感觉类型的不同，生成不同的指令
-** var = ex
+/* var = ex
+** 先 LOAD_XXX (ex) 后 SET_XXX(var=ex) 的"赋值组合业务"
 */
 void luaK_storevar (FuncState *fs, expdesc *var, expdesc *ex) {
   switch (var->k) {
     case VLOCAL: {
       freeexp(fs, ex);
+	  /* var是VLOCAL, 那么直接将ex的值拷贝到var对应的reg即可*/
       exp2reg(fs, ex, var->u.s.info);	/* var = ex */
       return;
     }
-    case VUPVAL: {
+    case VUPVAL: {		/* UpValue[B] := R(A) */
+	  /* 现将表达式加载到reg,再赋值给UPVAL */
       int e = luaK_exp2anyreg(fs, ex);	/* var = ex */
       luaK_codeABC(fs, OP_SETUPVAL, e, var->u.s.info, 0);
       break;
     }
-    case VGLOBAL: {
+    case VGLOBAL: {		/* Gbl[Kst(Bx)] := R(A) */
       int e = luaK_exp2anyreg(fs, ex);	/* var = ex */
       luaK_codeABx(fs, OP_SETGLOBAL, e, var->u.s.info);
       break;
     }
-    case VINDEXED: {
+    case VINDEXED: {	/* R(A)[RK(B)] := RK(C) */
       int e = luaK_exp2RK(fs, ex);	/* var = ex */
       luaK_codeABC(fs, OP_SETTABLE, var->u.s.info, var->u.s.aux, e);
       break;
@@ -589,18 +668,30 @@ void luaK_storevar (FuncState *fs, expdesc *var, expdesc *ex) {
       break;
     }
   }
+  /* 释放求ex表达式的值的过程中产生的临时寄存器 */
   freeexp(fs, ex);
 }
 
 /* OP_SELF A B C R(A+1) := R(B); R(A) := R(B)[RK(C)] */
 void luaK_self (FuncState *fs, expdesc *e, expdesc *key) {
   int func;
+  
+  /* function tbl.sub()
+  ** end
+  ** tbl可能不是localvar，有可能是个global,upval等，所以求其值
+  ** 在
+  */
+  
   luaK_exp2anyreg(fs, e);
   freeexp(fs, e);
   func = fs->freereg;
-  luaK_reserveregs(fs, 2);
+  
+  luaK_reserveregs(fs, 2);	/* 预留2个free.reg出来，留给指令OP_SELF使用 */
   luaK_codeABC(fs, OP_SELF, func, e->u.s.info, luaK_exp2RK(fs, key));
+  /* 语法要求，key必须是个TK_NAME，是个常量，故而这里不会释放上面2个reg,不明白这句话，看函数实现即可明白 */
   freeexp(fs, key);
+
+  /* 这里对e是间接表达式和VLOCAL表达式这两种分别分析，即可得出结论(e->u.s.info=func这句代码是对的) */
   e->u.s.info = func;
   e->k = VNONRELOC;
 }
@@ -815,7 +906,7 @@ void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e) {
   }
 }
 
-
+/* infix: 中缀 */
 void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   switch (op) {
     case OPR_AND: {
@@ -927,14 +1018,16 @@ int luaK_codeABx (FuncState *fs, OpCode o, int a, unsigned int bc) {
 
 void luaK_setlist (FuncState *fs, int base, int nelems, int tostore) {
   int c =  (nelems - 1)/LFIELDS_PER_FLUSH + 1;
-  int b = (tostore == LUA_MULTRET) ? 0 : tostore;
+  int b = (tostore == LUA_MULTRET) ? 0 : tostore;	/* tostore中最后一个是变参，则tostore==LUA_MULTRET */
   lua_assert(tostore != 0);
   if (c <= MAXARG_C)
     luaK_codeABC(fs, OP_SETLIST, base, b, c);
   else {
+  	/* c过大，将其放到下一条指令中 */
     luaK_codeABC(fs, OP_SETLIST, base, b, 0);
     luaK_code(fs, cast(Instruction, c), fs->ls->lastline);
   }
+  /* 这里可以回收空闲出来的寄存器了，有意思吧, base+1：保留tbl占用的一个reg,构造表过程中其它临时寄存器被释放 */
   fs->freereg = base + 1;  /* free registers with list values */
 }
 
