@@ -233,7 +233,9 @@ typedef struct FuncState {
   struct BlockCnt *bl;  /* chain of current blocks */
   int pc;  				/* 指向:下一个待生成的指令 next position to code (equivalent to `ncode') */
   int lasttarget;   	/* `pc' of last `jump target' */
-  int jpc;  			/* list of pending jumps to `pc'：指向下一个待生成的指令的待回填的跳转链表 */
+
+  /* 待回填的跳转到下一条待生成指令的链表 */
+  int jpc;  			/* list of pending jumps to `pc'  jpc: jump'pc */
 
 
   /* 存储常量kvar在对应的 Proto.k 常量数组中的下标的映射表 

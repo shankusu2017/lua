@@ -66,7 +66,11 @@ void luaK_nil (FuncState *fs, int from, int n) {
 }
 
 /* 
-** OP_JMP sBx PC += sBx
+** 构建一个jmp跳转指令，将新构建的jmp指令指向原来jmp指令的头(等效于往链表头插入一个跳转指令)
+** 原来 fs->jpc.next--->jmp2.next---->jmp3.next(NULL)
+** 现在 fs->jpc=NULL  j(new.jmp)->jpc.next->jmp2.next->jmp3.next(NULL)
+**
+** RETURNS j(new.jump)
 **
 ** 待回填的跳转链表指向我，而我又指向其它pc，那么将上述链表和我串联在一起即可
 */
@@ -74,7 +78,7 @@ int luaK_jump (FuncState *fs) {
   int jpc = fs->jpc;  /* save list of jumps to here */
   int j;
   fs->jpc = NO_JUMP;
-  j = luaK_codeAsBx(fs, OP_JMP, 0, NO_JUMP);
+  j = luaK_codeAsBx(fs, OP_JMP, 0, NO_JUMP);	/* OP_JMP sBx PC += sBx */
   luaK_concat(fs, &j, jpc);  /* keep them on hold */
   return j;
 }
@@ -186,8 +190,11 @@ static void dischargejpc (FuncState *fs) {
   fs->jpc = NO_JUMP;	/* 置空 */
 }
 
-
+/* 将待回填的跳转指令列表list(可能是单个元素的链表)挂到fs->jpc链表末尾
+** 或者将list中的所有待回填的指令指向跳转目标target(已生成对应的指令，不是上面哪种尚未生成的下一条指令)
+*/
 void luaK_patchlist (FuncState *fs, int list, int target) {
+  /* 如果跳转目标target是下一条待生成的指令地址，则直接将待回填的跳转指令链表挂到fs->jpc上 */
   if (target == fs->pc)
     luaK_patchtohere(fs, list);
   else {
@@ -202,8 +209,8 @@ void luaK_patchtohere (FuncState *fs, int list) {
   luaK_concat(fs, &fs->jpc, list);
 }
 
-/*  l1.sBx = l2 
-** 将l2指向的待回填跳转指令/指令链表挂到l1的跳转链表上
+/*  l1.next->next->next.sBx = l2 
+** 将l2指向的待回填跳转指令/指令链表挂到l1的跳转链表尾上
 */
 void luaK_concat (FuncState *fs, int *l1, int l2) {
   if (l2 == NO_JUMP) /* l2不是一条跳转指令，直接返回 */
@@ -247,7 +254,9 @@ static void freereg (FuncState *fs, int reg) {
   }
 }
 
-/* 释放被临时占用的reg */
+/* 释放被临时占用的reg
+** local a = b + c + d  编译+d之前整合b+c的表达式，释放一个reg
+ */
 static void freeexp (FuncState *fs, expdesc *e) {
   if (e->k == VNONRELOC)		/* 表达式的值已被CP_XXX到reg中的，才释放 (还没加载到reg，那压根没占用reg，释放个锤子*/
     freereg(fs, e->u.s.info);	/* VNONRELOC info = result register */ 
@@ -256,7 +265,8 @@ static void freeexp (FuncState *fs, expdesc *e) {
 /*
 ** 将常量加载到fs->f的常量表中
 **
-** local var = "hello" 则本函数的k,v="hello" 
+** local var = "hello
+" 则本函数的k,v="hello" 
 */
 static int addk (FuncState *fs, TValue *k, TValue *v) {
   lua_State *L = fs->L;
@@ -383,7 +393,8 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
     }
     case VINDEXED: {	/* OP_GETTABLE A B C R(A) := R(B)[RK(C)] */
 	  /* !!这里是依次释放的
-	  ** a.b.c.d.e... 释放a.b.c.d之前占用的reg,以便重利用reg
+	  ** eg.1：a.b.c.d.e... 释放a.b.c.d之前占用的reg,以便重利用reg
+	  ** eg.2: local a = b.c, (b,c作为upval加载到reg时占用了reg，右边作为一个整体，释放b,c占用的reg)
 	  */
       freereg(fs, e->u.s.aux);
       freereg(fs, e->u.s.info);
@@ -554,7 +565,11 @@ void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
   */
   luaK_dischargevars(fs, e);
 
-  /* 释放特定条件下的被临时占用的reg */
+  /* 释放被临时占用的reg
+  ** eg: local a,b,c = funA()(), d, e
+  ** funA()()整个exp作为一个整理占用一个reg，
+  ** 解析第二个()之前funA()已经完全解析完毕故而可以释放其占用的reg了。
+  */
   freeexp(fs, e);
   
   /* 申请一个reg，并将exp赋值到reg上 */
@@ -581,13 +596,14 @@ int luaK_exp2anyreg (FuncState *fs, expdesc *e) {
     }
   }
   
-  /* e的src值还不在reg则将其存入reg */
+  /* e的src值还不在reg则将其加载到reg */
   luaK_exp2nextreg(fs, e);  /* default */
   return e->u.s.info;
 }
 
 /* 类似 LOAD_XXX 生成表达式的加载指令(！！！！不是CP_XXX拷贝一份e的值到reg的拷贝指令) */
 void luaK_exp2val (FuncState *fs, expdesc *e) {
+  /* */
   if (hasjumps(e))
     luaK_exp2anyreg(fs, e);	/* 求解表达式的src.val后，将表达式的值放到下一个free.reg中 */
   else
@@ -716,13 +732,15 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   }
   discharge2anyreg(fs, e);
   freeexp(fs, e);
-  return condjump(fs, OP_TESTSET, NO_REG, e->u.s.info, cond);
+  /* if (R(B) <=> C) then R(A) := R(B) else pc++ */
+  return condjump(fs, OP_TESTSET, NO_REG, e->u.s.info, cond);	
 }
 
-/* and */
+/* */
 void luaK_goiftrue (FuncState *fs, expdesc *e) {
   int pc;  /* pc of last jump */
   luaK_dischargevars(fs, e);
+  
   switch (e->k) {
     case VK: case VKNUM: case VTRUE: {	
       pc = NO_JUMP;  /* always true; do nothing， keep go throught? */
@@ -734,11 +752,13 @@ void luaK_goiftrue (FuncState *fs, expdesc *e) {
       break;
     }
     default: {
-      pc = jumponcond(fs, e, 0);
+      pc = jumponcond(fs, e, 0); /* */
       break;
     }
   }
+  
   luaK_concat(fs, &e->f, pc);  /* insert last jump in `f' list */
+  
   luaK_patchtohere(fs, e->t);
   e->t = NO_JUMP;
 }
@@ -906,7 +926,7 @@ void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e) {
   }
 }
 
-/* infix: 中缀 */
+/* infix: 中缀 a = b + c 解析c之前先处理b */
 void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   switch (op) {
     case OPR_AND: {
@@ -933,7 +953,7 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   }
 }
 
-
+/* a = b + c 解析完c之后，将b+c合并b+c作为一个exp */
 void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
   switch (op) {
     case OPR_AND: {
@@ -988,17 +1008,22 @@ void luaK_fixline (FuncState *fs, int line) {
 
 static int luaK_code (FuncState *fs, Instruction i, int line) {
   Proto *f = fs->f;
+  
+  /* 如果有待回填的指向下一条待生成指令的链表，则回填 */
   dischargejpc(fs);  /* `pc' will change */
+  
   /* put new instruction in code array */
   luaM_growvector(fs->L, f->code, fs->pc, f->sizecode, Instruction,
                   MAX_INT, "code size overflow");
   f->code[fs->pc] = i;
-  /* save corresponding line information */
+  
+  /* save corresponding line information 更新指令的line.map信息 */
   luaM_growvector(fs->L, f->lineinfo, fs->pc, f->sizelineinfo, int,
                   MAX_INT, "code size overflow");
   f->lineinfo[fs->pc] = line;
-  return fs->pc++;
-}
+  
+  return fs->pc++;				/* pc指向下一个待生成指令的idx,记住这一点对理解跳转逻辑是必要的 */
+}	
 
 
 int luaK_codeABC (FuncState *fs, OpCode o, int a, int b, int c) {

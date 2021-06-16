@@ -1,6 +1,8 @@
 -- local a
-local a
-a = 1, 2, fun()
+-- local a = b + c + d
+while(true) do
+	print("in while")
+end
 -- local d
 -- local e = nil
 -- local a 

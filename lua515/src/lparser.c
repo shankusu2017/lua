@@ -414,15 +414,16 @@ static void enterlevel (LexState *ls) {
 
 /* 进入块时，初始化block信息 */
 static void enterblock (FuncState *fs, BlockCnt *bl, lu_byte isbreakable) {
-  bl->breaklist = NO_JUMP;
-  bl->isbreakable = isbreakable;
-  bl->nactvar = fs->nactvar;
-  bl->upval = 0;
+  bl->breaklist = NO_JUMP;			/* block中的break待回填的跳转链表为NUL */
+  bl->isbreakable = isbreakable;	/* 如果block不支持break,那么不能出现BREAK（eg:if中的body）*/
+  bl->nactvar = fs->nactvar;		/* 记录进入block时的nactvar，以便退出block时回滚-重利用reg和确定block中声明的local变量的生命周期 */
+  bl->upval = 0;					/* block中暂时还没有upval，后面有了再更新此域 */
   
-  /* 这里有个印象 */
+  /* 这里和ls->fs的切换是类似的逻辑 */
   bl->previous = fs->bl;
   fs->bl = bl;
-  
+
+  /* 判断：进入block时fs对应的下一个freereg的索引和fs->nactvar相匹配 */
   lua_assert(fs->freereg == fs->nactvar);
 }
 
@@ -431,10 +432,14 @@ static void leaveblock (FuncState *fs) {
   BlockCnt *bl = fs->bl;
   fs->bl = bl->previous;
   
-  /* 确定本block内激活的var的生存周期的endpc */
+  /* 确定本block内激活的var的生存周期的endpc
+  ** 更新fs->nactvar
+  */
   removevars(fs->ls, bl->nactvar);
 
-  /* OP_CLOSE A close all variables in the stack up to (>=) R(A) */
+  /* OP_CLOSE A close all variables in the stack up to (>=) R(A) 
+  ** 生成OP_CLOSE指令以便能正确的处理upval
+  */
   if (bl->upval) {
     luaK_codeABC(fs, OP_CLOSE, bl->nactvar, 0, 0);
   }
@@ -444,7 +449,8 @@ static void leaveblock (FuncState *fs) {
   
   lua_assert(bl->nactvar == fs->nactvar);	/* 这个必须保证 */
   fs->freereg = fs->nactvar;  /* free registers */
-  
+
+  /* 将break语句对应的待回填的跳转链表挂到fs->jpc上，等待回填 */
   luaK_patchtohere(fs, bl->breaklist);
 }
 
@@ -601,7 +607,13 @@ static void field (LexState *ls, expdesc *v) {
   FuncState *fs = ls->fs;
   expdesc key;
   
-  /* 将前缀(a.b.c中的a.b或a.b中的a)加载到reg中，若前缀已在寄存器中则无需处理(A=VLOCAL(a)) */
+  /* 将前缀(a.b.c中的a.b或a.b中的a)加载到reg中，若前缀已在寄存器中则无需处理(A=VLOCAL(a)) 
+  ** OP_GETTABLE 	A B C 	R(A) := R(B)[RK(C)]
+  ** OP_SETTABLE   	A B C   R(A)[RK(B)] := RK(C)
+  **
+  ** prefixexp.key 前缀prefixexp不一定已经被加载到reg数组中了，指令需要先加载到reg中，
+  ** 故而在解析key之前先加载到reg中再解析key
+  */
   luaK_exp2anyreg(fs, v);	
   
   luaX_next(ls); 		/* skip the dot or colon */
@@ -921,7 +933,7 @@ static void funcargs (LexState *ls, expdesc *f) {
   
   luaK_fixline(fs, line);
   
-  /* chunk函数中在解析完一个stat后会根据ls->fs->nactvar再一次调整fs->freereg 
+  /* chunkstat 在解析完一个stat后会根据ls->fs->nactvar再一次调整fs->freereg 
   **
   ** funcargs:作为explist1的子域，这里默认要求返回一个返回值，和上面生成OP_CALL指令中的参数也是对应的
   **   eg1:(请求返回单个值) a, b, c = fun(), g.h, i  这里+1，可以让g.h间接表达式的CP指令能放入到后一个free'reg中
@@ -997,7 +1009,12 @@ static void primaryexp (LexState *ls, expdesc *v) {
       }
       case '[': {  /* `[' exp1 `]' */
         expdesc key;
-        luaK_exp2anyreg(fs, v);
+		/* 
+		** OP_GETTABLE A B C R(A) := R(B)[RK(C)]
+		** exp = v[key] 前缀v不一定是VNONRELOC，在解析exp时，
+		** 需加载到reg中再解析后面的key
+		*/
+        luaK_exp2anyreg(fs, v);	/*  */
         yindex(ls, &key);
         luaK_indexed(fs, v, &key);
         break;
@@ -1011,6 +1028,7 @@ static void primaryexp (LexState *ls, expdesc *v) {
         break;
       }
       case '(': case TK_STRING: case '{': {  /* funcargs 函数调用 */
+	  	/* expr(arglist) 参数列表可能需要占用reg，这里需要将expr先存到reg中 */
         luaK_exp2nextreg(fs, v);
         funcargs(ls, v);
         break;
@@ -1129,6 +1147,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
   UnOpr uop;
   enterlevel(ls);
   uop = getunopr(ls->t.token);
+  /* 表达式前有一元操作符 - not # 吗? */
   if (uop != OPR_NOUNOPR) {
     luaX_next(ls);
     subexpr(ls, v, UNARY_PRIORITY);
@@ -1164,9 +1183,13 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
   return op;  /* return first untreated operator */
 }
 
-
+/* 
+** eg.1 local a = b * (c+d+e)
+**       解析到'('时进入此函数，并且在')'后才结束，函数将c+d+e作为一个整体返回给上层
+** 
+*/
 static void expr (LexState *ls, expdesc *v) {
-  subexpr(ls, v, 0);
+  subexpr(ls, v, 0);	/* 0的传入意味着将表达式前面的操作符的优先级视为0，那么c会和'+'结合而不是前面的'*'结合了 */
 }
 
 /* }==================================================================== */
@@ -1298,7 +1321,9 @@ static int cond (LexState *ls) {
   /* cond -> exp */
   expdesc v;
   expr(ls, &v);  /* read condition */
+  
   if (v.k == VNIL) v.k = VFALSE;  /* `falses' are all equal here */
+  
   luaK_goiftrue(ls->fs, &v);
   return v.f;
 }
@@ -1327,14 +1352,25 @@ static void whilestat (LexState *ls, int line) {
   int condexit;
   BlockCnt bl;
   luaX_next(ls);  /* skip WHILE */
+  
+  /* 提取循环的第一条指令 */
   whileinit = luaK_getlabel(fs);
+  
   condexit = cond(ls);
+  
   enterblock(fs, &bl, 1);
   checknext(ls, TK_DO);
   block(ls);
+
+  /* 生成一条跳往whileinit的指令，从而实现while的循环 */
   luaK_patchlist(fs, luaK_jump(fs), whileinit);
-  check_match(ls, TK_END, TK_WHILE, line);
+  
+  check_match(ls, TK_END, TK_WHILE, line);	/* 关键字匹配检查 */
   leaveblock(fs);
+  
+  /* 将待回填的condexit链表挂到fs->jpc上，等待生成下一条指令时，将其回填 
+  ** 从而实现cond为假时跳过body的逻辑
+  */
   luaK_patchtohere(fs, condexit);  /* false conditions finish the loop */
 }
 
