@@ -66,21 +66,20 @@ void luaK_nil (FuncState *fs, int from, int n) {
 }
 
 /* 
-** 构建一个jmp跳转指令，将新构建的jmp指令指向原来jmp指令的头(等效于往链表头插入一个跳转指令)
-** 原来 fs->jpc.next--->jmp2.next---->jmp3.next(NULL)
-** 现在 fs->jpc=NULL  j(new.jmp)->jpc.next->jmp2.next->jmp3.next(NULL)
+** 构建一条jmp指令，将fs->jpc挂到新构建的jmp指令的尾上
+** 组成：  j(new.jmp)->jpc.next->jpc2.next->jpc3.next(NULL) fs->jpc=NULL 
 **
 ** RETURNS j(new.jump)
 **
 ** 待回填的跳转链表指向我，而我又指向其它pc，那么将上述链表和我串联在一起即可
 */
 int luaK_jump (FuncState *fs) {
-  int jpc = fs->jpc;  /* save list of jumps to here */
+  int jpc = fs->jpc;  	/* save list of jumps to here */
   int j;
-  fs->jpc = NO_JUMP;
+  fs->jpc = NO_JUMP;	/* fs->jpc挂到新生成的jmp上，这里需清空fs->jpc */
   j = luaK_codeAsBx(fs, OP_JMP, 0, NO_JUMP);	/* OP_JMP sBx PC += sBx */
-  luaK_concat(fs, &j, jpc);  /* keep them on hold */
-  return j;
+  luaK_concat(fs, &j, jpc);  	/* keep them on hold */
+  return j;						/* 返回给上层，不然j就丢失了 */
 }
 
 /* 从函数返回
@@ -111,6 +110,11 @@ static void fixjump (FuncState *fs, int pc, int dest) {
 /*
 ** returns current `pc' and marks it as a jump target (to avoid wrong
 ** optimizations(优化) with consecutive(连续) instructions not in the same basic block).
+** 有一条跳转指令需要指向下一条待生成的指令，这里返回下一条待生成的指令地址并返回
+**   方便回填跳转指令
+**   eg WHILE cond DO body END
+**     在cond开始的地方构建一个whileinit标记，等待body解析完毕后，生成一条跳转到whileinit
+**     的跳转指令，已实现while的循环逻辑
 */
 int luaK_getlabel (FuncState *fs) {
   fs->lasttarget = fs->pc;
@@ -129,6 +133,7 @@ static int getjump (FuncState *fs, int pc) {
 
 static Instruction *getjumpcontrol (FuncState *fs, int pc) {
   Instruction *pi = &fs->f->code[pc];
+  /* 参考 jumponcond 函数，这里需往后退一格子 */
   if (pc >= 1 && testTMode(GET_OPCODE(*(pi-1))))
     return pi-1;
   else
@@ -148,11 +153,12 @@ static int need_value (FuncState *fs, int list) {
   return 0;  /* not found */
 }
 
-
+/* 继续处理 jumponcond 函数生成的 OP_TESTSET 逻辑跳转指令 */
 static int patchtestreg (FuncState *fs, int node, int reg) {
   Instruction *i = getjumpcontrol(fs, node);
   if (GET_OPCODE(*i) != OP_TESTSET)
     return 0;  /* cannot patch other instructions */
+  
   if (reg != NO_REG && reg != GETARG_B(*i))
     SETARG_A(*i, reg);
   else  /* no register to put value or register already has the value */
@@ -422,7 +428,7 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
 		break;
 	}
 	
-	/* 还没遇到过，不太理解 */
+	/* 跳转表达式，已生成对应的跳转指令 */
 	case VJMP:
 		break;
 			
@@ -732,7 +738,10 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   }
   discharge2anyreg(fs, e);
   freeexp(fs, e);
-  /* if (R(B) <=> C) then R(A) := R(B) else pc++ */
+  
+  /* if (R(B) <=> C) then R(A) := R(B) else pc++ 
+  ** 这里RA尚未填写，再回填这个跳转指令链表时会处理 patchtestreg
+  */
   return condjump(fs, OP_TESTSET, NO_REG, e->u.s.info, cond);	
 }
 
@@ -747,20 +756,41 @@ void luaK_goiftrue (FuncState *fs, expdesc *e) {
       break;
     }
     case VJMP: {
+	  /* luaK_posfix 函数中的cond是反的，这里再次取反，就反反得正了 
+	  ** eg: WHILE (a > b) DO
+	  **        body
+	  **     END
+	  **   关闭表达式解析初步解析后，这里进行收尾
+	  */
       invertjump(fs, e);
       pc = e->u.s.info;
       break;
     }
     default: {
-      pc = jumponcond(fs, e, 0); /* */
+      /* 生成(OP_TESTSE   cond)和无条件跳转指令
+      ** eg : WHILE (a) DO
+      **        body
+      **      END
+      */
+      /* 这里cond==0   
+      ** OP_TESTSET,	/*	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++	
+      ** jumponcond 函数在生成 OP_TESTSET指令后接着生成OP_JUMP
+      ** 一起来看就实现了 if (cond==0) then
+      **                       R(A) = R(B)
+      **                       OP_JUMP--->fail.out
+      **                  end
+      **    即条件判断失败则跳转的逻辑
+      */
+      pc = jumponcond(fs, e, 0); 
       break;
     }
   }
   
   luaK_concat(fs, &e->f, pc);  /* insert last jump in `f' list */
-  
-  luaK_patchtohere(fs, e->t);
-  e->t = NO_JUMP;
+
+  /* 条件为true,则go thorught */
+  luaK_patchtohere(fs, e->t);	
+  e->t = NO_JUMP;	/* 已经将待回填的truelist挂到fs->jpc上了，这里置空 */
 }
 
 /* or */
@@ -900,7 +930,11 @@ static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
     temp = o1; o1 = o2; o2 = temp;  /* o1 <==> o2 */
     cond = 1;
   }
-  e1->u.s.info = condjump(fs, op, cond, o1, o2);
+  
+  /* OP_EQ,	  A B C   if ((RK(B) == RK(C)) ~= A) then pc++		  */
+  /* OP_LT,   A B C   if ((RK(B) <	RK(C)) ~= A) then pc++		  */
+  /* OP_LE,	  A B C   if ((RK(B) <= RK(C)) ~= A) then pc++		  */
+  e1->u.s.info = condjump(fs, op, cond, o1, o2);	
   e1->k = VJMP;
 }
 
@@ -957,8 +991,12 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
 void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
   switch (op) {
     case OPR_AND: {
+	  /* b and c 
+	  ** 解析完b时，b的true.jmp.list已被置空，且挂到了fs->jpc上(即下一条即将生成的指令)
+	  */
       lua_assert(e1->t == NO_JUMP);  /* list must be closed */
       luaK_dischargevars(fs, e2);
+	  /* 合并false.jmp.list */
       luaK_concat(fs, &e2->f, e1->f);
       *e1 = *e2;
       break;
@@ -990,6 +1028,9 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
     case OPR_DIV: codearith(fs, OP_DIV, e1, e2); break;
     case OPR_MOD: codearith(fs, OP_MOD, e1, e2); break;
     case OPR_POW: codearith(fs, OP_POW, e1, e2); break;
+	/* 这里的C和指令执行中的逻辑是反的，没关系，
+	** 后面会有 invertjump()函数进行取反处理，反反就得正了 
+	*/
     case OPR_EQ: codecomp(fs, OP_EQ, 1, e1, e2); break;
     case OPR_NE: codecomp(fs, OP_EQ, 0, e1, e2); break;
     case OPR_LT: codecomp(fs, OP_LT, 1, e1, e2); break;

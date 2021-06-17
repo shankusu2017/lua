@@ -190,8 +190,8 @@ OP_LT,/*	A B C	if ((RK(B) <  RK(C)) ~= A) then pc++  		*/
 OP_LE,/*	A B C	if ((RK(B) <= RK(C)) ~= A) then pc++  		*/
 
 /* !!!! <=>:用bool值做相等性比较，而不是判断不相等 */
-OP_TEST,/*	A C	i	f not (R(A) <=> C) then pc++			*/ 
-OP_TESTSET,/*	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++	*/ 
+OP_TEST,	/*	A C		if not (R(A) <=> C) then pc++			*/ 
+OP_TESTSET,	/*	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++	*/ 
 
 /* 
 ** B=1表示没有传入参数,2:传入一个参数,0:传入了不定参数 

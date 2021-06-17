@@ -232,6 +232,8 @@ typedef struct FuncState {
   
   struct BlockCnt *bl;  /* chain of current blocks */
   int pc;  				/* 指向:下一个待生成的指令 next position to code (equivalent to `ncode') */
+
+  /* 指向最近的被标记位置(jpc指向的) */
   int lasttarget;   	/* `pc' of last `jump target' */
 
   /* 待回填的跳转到下一条待生成指令的链表 */

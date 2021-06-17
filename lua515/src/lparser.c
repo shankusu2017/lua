@@ -1134,7 +1134,7 @@ static const struct {
    {2, 2}, {1, 1}                   /* logical (and/or) */
 };
 
-#define UNARY_PRIORITY	8  /* priority for unary operators,一元操作符的优先级？ */
+#define UNARY_PRIORITY	8  /* priority for unary operators,一元操作符的优先级 */
 
 
 /*
@@ -1317,6 +1317,7 @@ static void assignment (LexState *ls, struct LHS_assign *lh, int nvars) {
   luaK_storevar(ls->fs, &lh->v, &e);	
 }
 
+/* WHILE-cond REPEAT-cond IF-cond ELSEIF-cond */
 static int cond (LexState *ls) {
   /* cond -> exp */
   expdesc v;
@@ -1327,7 +1328,6 @@ static int cond (LexState *ls) {
   luaK_goiftrue(ls->fs, &v);
   return v.f;
 }
-
 
 static void breakstat (LexState *ls) {
   FuncState *fs = ls->fs;
@@ -1362,10 +1362,14 @@ static void whilestat (LexState *ls, int line) {
   checknext(ls, TK_DO);
   block(ls);
 
-  /* 生成一条跳往whileinit的指令，从而实现while的循环 */
+  /* 生成一条指向whileinit的跳转指令，从而实现while循环 */
   luaK_patchlist(fs, luaK_jump(fs), whileinit);
   
   check_match(ls, TK_END, TK_WHILE, line);	/* 关键字匹配检查 */
+  /*
+  ** 处理block中locvar的生命周期，回滚freereg指针，根据upval的有无生成OP_CLOSE指令
+  ** 处理待回填的block->breaklist跳转指令链表
+  */
   leaveblock(fs);
   
   /* 将待回填的condexit链表挂到fs->jpc上，等待生成下一条指令时，将其回填 
