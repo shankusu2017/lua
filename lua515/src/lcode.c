@@ -728,6 +728,11 @@ static void invertjump (FuncState *fs, expdesc *e) {
 
 
 static int jumponcond (FuncState *fs, expdesc *e, int cond) {
+  /* WHILE (NOT a) DO
+  **   body
+  ** END
+  ** 对着走一遍流程就理解这里if代码了
+  */
   if (e->k == VRELOCABLE) {
     Instruction ie = getcode(fs, e);
     if (GET_OPCODE(ie) == OP_NOT) {
@@ -811,8 +816,18 @@ static void luaK_goiffalse (FuncState *fs, expdesc *e) {
       break;
     }
   }
+
+  
+  /* 
+  ** eg WHILE(a OR b) THEN
+  **      body
+  **    END
+  **    将上面的TRUE.JUMP(pc)链接到a的truelist，等待解析完毕整个cond后回填到body的第一条指令上
+  ** 	将a->falselist更新到下一条语句,如果表达式a为假，就继续执行表达式b
+  **    
+  */
   luaK_concat(fs, &e->t, pc);  /* insert last jump in `t' list */
-  luaK_patchtohere(fs, e->f);
+  luaK_patchtohere(fs, e->f);	/* */
   e->f = NO_JUMP;
 }
 
@@ -838,6 +853,7 @@ static void codenot (FuncState *fs, expdesc *e) {
     case VNONRELOC: {
       discharge2anyreg(fs, e);
       freeexp(fs, e);
+	  /* R(A) := not R(B) */
       e->u.s.info = luaK_codeABC(fs, OP_NOT, 0, e->u.s.info, 0);
       e->k = VRELOCABLE;
       break;
@@ -938,7 +954,9 @@ static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
   e1->k = VJMP;
 }
 
-
+/* local a = not b 
+** 处理前缀操作符
+*/
 void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e) {
   expdesc e2;
   e2.t = e2.f = NO_JUMP;
@@ -996,7 +1014,13 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
 	  */
       lua_assert(e1->t == NO_JUMP);  /* list must be closed */
       luaK_dischargevars(fs, e2);
-	  /* 合并false.jmp.list */
+	
+	  /* 合并false.jmp.list 
+	  ** WHILE(a AND b AND c...) DO
+	  **  body
+	  ** END
+	  ** 所有的表达式a,b,c..的false.jump的目的地都是一样的(whilestat结束后的第一条指令)
+	  */
       luaK_concat(fs, &e2->f, e1->f);
       *e1 = *e2;
       break;
@@ -1004,6 +1028,13 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
     case OPR_OR: {
       lua_assert(e1->f == NO_JUMP);  /* list must be closed */
       luaK_dischargevars(fs, e2);
+	
+	  /* 合并true.jmp.list 
+	  ** WHILE(a OR b OR c...) DO
+	  **  body
+	  ** END
+	  ** 所有的表达式a,b,c..的true.jump的目的地都是一样的(body中的第一条指令)
+	  */
       luaK_concat(fs, &e2->t, e1->t);
       *e1 = *e2;
       break;

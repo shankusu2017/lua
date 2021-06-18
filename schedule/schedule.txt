@@ -1,9 +1,0 @@
-阅读计划
-.lua的演进
-.云风的 BLOG_ 采访 Lua 发明人的一篇文章
-.The Implementation of Lua5.0_ch
-.Lua51参考手册
-.lua的设计与实现
-.lua源码欣赏
-.A No-Frills Introduction to Lua 5.1 VM Instructions
-
