@@ -1147,7 +1147,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
   UnOpr uop;
   enterlevel(ls);
   uop = getunopr(ls->t.token);
-  /* 表达式前有一元操作符 - not # 吗? */
+  /* 表达式前有一元操作符 - not # */
   if (uop != OPR_NOUNOPR) {
     luaX_next(ls);
     subexpr(ls, v, UNARY_PRIORITY);
@@ -1219,9 +1219,24 @@ static void block (LexState *ls) {
   /* block -> chunk */
   FuncState *fs = ls->fs;
   BlockCnt bl;
-  enterblock(fs, &bl, 0);
+  
+  /* isbreakable==0，意味着不可以挂bl.breaklist.jmp 
+  ** 如果需要like WHILE(cond) DO
+  **                  DO
+  **					break
+  **                  END
+  **              END
+  ** 这样实现跳出WHILE.STAT功能，在block函数之前调用enterblock(,,isbreakable==1)
+  ** 示例直接看whilestat即可
+  **
+  ** 这里之所以不准许挂bl.breaklist.jmp可能是因为 这个block函数是最内层的 DO stat END 的实现了
+  */
+  enterblock(fs, &bl, 0);	
   chunk(ls);
+  
+  /* 看上面注释 */
   lua_assert(bl.breaklist == NO_JUMP);
+  /* 有进有出 */
   leaveblock(fs);
 }
 
@@ -1333,14 +1348,24 @@ static void breakstat (LexState *ls) {
   FuncState *fs = ls->fs;
   BlockCnt *bl = fs->bl;
   int upval = 0;
+
+  /* 往前一层一层的查找，找到第一个breakable的block即可 */
   while (bl && !bl->isbreakable) {
-    upval |= bl->upval;
+    upval |= bl->upval;	/* 这个 |= 用的妙 */
     bl = bl->previous;
   }
+  
   if (!bl)
     luaX_syntaxerror(ls, "no loop to break");
+  
+  /* break跳转出去时需要处理前面的upval */
   if (upval)
     luaK_codeABC(fs, OP_CLOSE, bl->nactvar, 0, 0);
+  
+  /* 
+  ** 这里生成JMP指令并挂到待回填的bl->breaklist链表上
+  ** leaveblock函数中会回填bl->breaklist，完成整个JMP流程
+  */
   luaK_concat(fs, &bl->breaklist, luaK_jump(fs));
 }
 
@@ -1378,11 +1403,18 @@ static void whilestat (LexState *ls, int line) {
   luaK_patchtohere(fs, condexit);  /* false conditions finish the loop */
 }
 
+/*
+repeat
+   statements
+until( condition )
+*/
+
 
 static void repeatstat (LexState *ls, int line) {
   /* repeatstat -> REPEAT block UNTIL cond */
   int condexit;
   FuncState *fs = ls->fs;
+  /* 循环的入口 */
   int repeat_init = luaK_getlabel(fs);
   BlockCnt bl1, bl2;
   enterblock(fs, &bl1, 1);  /* loop block */
@@ -1396,7 +1428,11 @@ static void repeatstat (LexState *ls, int line) {
     luaK_patchlist(ls->fs, condexit, repeat_init);  /* close the loop */
   }
   else {  /* complete semantics when there are upvalues */
+  	/* 函数内部建立一条con.true的跳转通道，跳转到REPEAT STAT之外
+  	** 不然会陷入REPEAT死循环
+  	*/
     breakstat(ls);  /* if condition then break */
+	
     luaK_patchtohere(ls->fs, condexit);  /* else... */
     leaveblock(fs);  /* finish scope... */
     luaK_patchlist(ls->fs, luaK_jump(fs), repeat_init);  /* and repeat */

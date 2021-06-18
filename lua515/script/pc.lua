@@ -1,10 +1,8 @@
 -- local a
 -- local a = b + c + d
-local a, b
-while (a and b) do
-	print("in while")
+while(true)do
+	break
 end
-local c = 1
 
 -- local d
 -- local e = nil
