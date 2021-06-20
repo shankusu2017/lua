@@ -1072,7 +1072,10 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
   }
 }
 
-/* 更新上一个生成的pc对应的行信息 */
+/* 更新上一个生成的pc对应的行信息
+** 对着forstat看，一下就明白了
+** 某些情况下，指令的生成顺序和代码中的出现的顺序不一定相等哦
+*/
 void luaK_fixline (FuncState *fs, int line) {
   fs->f->lineinfo[fs->pc - 1] = line;
 }

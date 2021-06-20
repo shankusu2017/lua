@@ -1450,24 +1450,45 @@ static int exp1 (LexState *ls) {
   return k;
 }
 
-
+/* 结合OP_TFORLOOP, OP_FORLOOP 指令的执行过程
+** 以及 fornum，forlist的函数实现一起来看比较容易理解
+**
+*/
 static void forbody (LexState *ls, int base, int line, int nvars, int isnum) {
   /* forbody -> DO block */
   BlockCnt bl;
   FuncState *fs = ls->fs;
   int prep, endfor;
+
+  /* 正式激活三个控制变量 */
   adjustlocalvars(ls, 3);  /* control variables */
+  
   checknext(ls, TK_DO);
+
+  /* 准备指令 R(A)-=R(A+2); pc+=sBx */
   prep = isnum ? luaK_codeAsBx(fs, OP_FORPREP, base, NO_JUMP) : luaK_jump(fs);
+  
   enterblock(fs, &bl, 0);  /* scope for declared variables */
+
+  /* 激活NAME并给它们申请正式的reg地址 */
   adjustlocalvars(ls, nvars);
   luaK_reserveregs(fs, nvars);
+
+  /* 编译block部分代码 */
   block(ls);
   leaveblock(fs);  /* end of scope for declared variables */
+
+  /* 跳到循环控制逻辑这里来了 */
   luaK_patchtohere(fs, prep);
+
+  /* 查看OP_FORLOOP 指令可知，在body中修改NAME对循环的控制逻辑无影响
+  */
   endfor = (isnum) ? luaK_codeAsBx(fs, OP_FORLOOP, base, NO_JUMP) :
                      luaK_codeABC(fs, OP_TFORLOOP, base, 0, nvars);
+
+  /* 更新lineinfo域 */					 
   luaK_fixline(fs, line);  /* pretend that `OP_FOR' starts the loop */
+  
   luaK_patchlist(fs, (isnum ? endfor : luaK_jump(fs)), prep + 1);
 }
 
@@ -1480,11 +1501,19 @@ static void fornum (LexState *ls, TString *varname, int line) {
   /* fornum -> NAME = exp1,exp1[,exp1] forbody */
   FuncState *fs = ls->fs;
   int base = fs->freereg;
+
+  /* 先占变量名空间，3个控制变量在lua代码中三个变量名是不可访问的，但可通过虚拟机指令地址访问到
+  ** varname变量在lua代码中是一个合法的变量名可被访问到
+  ** 上述4个局部变量尚未激活！！！！
+  ** 下面使用的3个exp1占用的空间则依次是3个控制变量准备代表的reg.addr
+  */
   new_localvarliteral(ls, "(for index)", 0);
   new_localvarliteral(ls, "(for limit)", 1);
   new_localvarliteral(ls, "(for step)", 2);
-  new_localvar(ls, varname, 3);
-  checknext(ls, '=');
+  new_localvar(ls, varname, 3);		/* create declared variables */
+
+  checknext(ls, '=');	/* 将NAME和exp1分离出来，妙吧 */
+  
   exp1(ls);  /* initial value */
   checknext(ls, ',');
   exp1(ls);  /* limit */
@@ -1509,6 +1538,7 @@ static void forlist (LexState *ls, TString *indexname) {
   int nvars = 0;
   int line;
   int base = fs->freereg;
+  
   /* create control variables 
   ** 前面已经调用了enterblock，所以这里创建的是block.locvar代码
   ** 这里隐式的创建了3个locvar,且不可被lua代码访问
@@ -1516,10 +1546,14 @@ static void forlist (LexState *ls, TString *indexname) {
   new_localvarliteral(ls, "(for generator)", nvars++);
   new_localvarliteral(ls, "(for state)", nvars++);
   new_localvarliteral(ls, "(for control)", nvars++);
+  
   /* create declared variables */
   new_localvar(ls, indexname, nvars++);
+
+  /* 循环读取用户自定义的其它locvar */
   while (testnext(ls, ','))
     new_localvar(ls, str_checkname(ls), nvars++);
+  
   checknext(ls, TK_IN);
   line = ls->linenumber;
   adjust_assign(ls, 3, explist1(ls, &e), &e);
