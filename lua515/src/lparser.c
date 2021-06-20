@@ -1226,7 +1226,7 @@ static void block (LexState *ls) {
   **					break
   **                  END
   **              END
-  ** 这样实现跳出WHILE.STAT功能，在block函数之前调用enterblock(,,isbreakable==1)
+  ** 要实现跳出WHILE.STAT中的break功能，在block函数之前调用enterblock(,,isbreakable==1)
   ** 示例直接看whilestat即可
   **
   ** 这里之所以不准许挂bl.breaklist.jmp可能是因为 这个block函数是最内层的 DO stat END 的实现了
@@ -1471,7 +1471,11 @@ static void forbody (LexState *ls, int base, int line, int nvars, int isnum) {
   luaK_patchlist(fs, (isnum ? endfor : luaK_jump(fs)), prep + 1);
 }
 
-
+/* 
+---- fornum ----
+for a = exp, b, [exp] do
+end
+*/
 static void fornum (LexState *ls, TString *varname, int line) {
   /* fornum -> NAME = exp1,exp1[,exp1] forbody */
   FuncState *fs = ls->fs;
@@ -1493,7 +1497,11 @@ static void fornum (LexState *ls, TString *varname, int line) {
   forbody(ls, base, line, 1, 1);
 }
 
-
+/*
+---- forlist ----
+for k [, v] in ipairs|pair(tbl) do
+end
+*/
 static void forlist (LexState *ls, TString *indexname) {
   /* forlist -> NAME {,NAME} IN explist1 forbody */
   FuncState *fs = ls->fs;
@@ -1501,7 +1509,10 @@ static void forlist (LexState *ls, TString *indexname) {
   int nvars = 0;
   int line;
   int base = fs->freereg;
-  /* create control variables */
+  /* create control variables 
+  ** 前面已经调用了enterblock，所以这里创建的是block.locvar代码
+  ** 这里隐式的创建了3个locvar,且不可被lua代码访问
+  */
   new_localvarliteral(ls, "(for generator)", nvars++);
   new_localvarliteral(ls, "(for state)", nvars++);
   new_localvarliteral(ls, "(for control)", nvars++);
@@ -1516,7 +1527,16 @@ static void forlist (LexState *ls, TString *indexname) {
   forbody(ls, base, line, nvars - 3, 0);
 }
 
+/*
+---- forlist ----
+for k [, v] in ipairs|pair(tbl) do
+end
 
+---- fornum ----
+for a = exp, b, [exp] do
+end
+
+*/
 static void forstat (LexState *ls, int line) {
   /* forstat -> FOR (fornum | forlist) END */
   FuncState *fs = ls->fs;
@@ -1542,7 +1562,7 @@ static int test_then_block (LexState *ls) {
   condexit = cond(ls);
   checknext(ls, TK_THEN);
   block(ls);  /* `then' part */
-  return condexit;
+  return condexit;	/* 返回待回填的falselist跳转链表，等待上层函数回填 */
 }
 
 
@@ -1553,8 +1573,8 @@ static void ifstat (LexState *ls, int line) {
   int escapelist = NO_JUMP;	/* 块结束的addr */
   flist = test_then_block(ls);  /* IF cond THEN block */
   while (ls->t.token == TK_ELSEIF) {
-    luaK_concat(fs, &escapelist, luaK_jump(fs));
-    luaK_patchtohere(fs, flist);
+    luaK_concat(fs, &escapelist, luaK_jump(fs));	/* 前面一个if/elseif执行完毕后，跳转到整个语句结束处 */
+    luaK_patchtohere(fs, flist);	/* 前面一个if/elseif判断失败则跳转到下一个elseif哪里，尝试判断下一个 */
     flist = test_then_block(ls);  /* ELSEIF cond THEN block */
   }
   if (ls->t.token == TK_ELSE) {
@@ -1565,6 +1585,7 @@ static void ifstat (LexState *ls, int line) {
   }
   else
     luaK_concat(fs, &escapelist, flist);
+  /* 整个语句的结束出 */
   luaK_patchtohere(fs, escapelist);
   check_match(ls, TK_END, TK_IF, line);
 }
