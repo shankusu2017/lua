@@ -536,7 +536,12 @@ static void discharge2anyreg (FuncState *fs, expdesc *e) {
 static void exp2reg (FuncState *fs, expdesc *e, int reg) {
   /* 将表达式的src.val赋值给dst(reg) */
   discharge2reg(fs, e, reg);
-  
+
+  /* 处理表达式中剩余的未处理的JMP逻辑
+  ** eg.1:
+  ** 	local b, c
+  ** 	local a = b and c
+  */
   if (e->k == VJMP)
     luaK_concat(fs, &e->t, e->u.s.info);  /* put this jump in `t' list */
   if (hasjumps(e)) {
