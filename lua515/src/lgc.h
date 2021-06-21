@@ -27,14 +27,23 @@
 #define resetbits(x,m)	((x) &= cast(lu_byte, ~(m)))	/* 清除特定的bit位 */
 #define setbits(x,m)	((x) |= (m))					/* 标记特定的bit位 */
 #define testbits(x,m)	((x) & (m))						/* 测试特定的bit位 */
+
 #define bitmask(b)	(1<<(b))							/* 获取某个左移N位的bit值 */
 #define bit2mask(b1,b2)	(bitmask(b1) | bitmask(b2))		/* 将1左移N位的bit值 | 将1左移M位的bit值 */
-#define l_setbit(x,b)	setbits(x, bitmask(b))			/* 将x的左移N位的bit设置为1 */
-#define resetbit(x,b)	resetbits(x, bitmask(b))		/* 将X的左移N位的bit设置位0 */
-#define testbit(x,b)	testbits(x, bitmask(b))			/* 测试X的左移N位是否为 1 */
-#define set2bits(x,b1,b2)	setbits(x, (bit2mask(b1, b2)))	/* 将X的左移N位，M位设置为 1 */
-#define reset2bits(x,b1,b2)	resetbits(x, (bit2mask(b1, b2)))	/* 清除X的左移N位，M位 */
-#define test2bits(x,b1,b2)	testbits(x, (bit2mask(b1, b2)))		/* 测试X的左移N位，M位是否至少有一个为1 */
+
+/* 将x的左移N位的bit设置为1/0 */
+#define l_setbit(x,b)	setbits(x, bitmask(b))			
+#define resetbit(x,b)	resetbits(x, bitmask(b))
+
+/* 测试X的左移N位是否为 1 */
+#define testbit(x,b)	testbits(x, bitmask(b))		
+
+/* 将X的左移N位，M位设置为 1/0 */
+#define set2bits(x,b1,b2)	setbits(x, (bit2mask(b1, b2)))	
+#define reset2bits(x,b1,b2)	resetbits(x, (bit2mask(b1, b2)))	
+
+/* 测试X的左移N位，M位是否至少有一个为1 */
+#define test2bits(x,b1,b2)	testbits(x, (bit2mask(b1, b2)))		
 
 
 
@@ -62,29 +71,36 @@
 #define SFIXEDBIT	6			/* 保留数据，only used for mainThread */
 #define WHITEBITS	bit2mask(WHITE0BIT, WHITE1BIT)
 
-/* 是任何一种白色吗bit[1,0]任一bit为1即可 */
+/* 是任何一种白色吗？ bit[1,0]任一bit为1即可 */
 #define iswhite(x)      test2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)	
-/* 是黑色吗bit[2]为1即可 */
+/* 是黑色吗？ bit[2]为1即可 */
 #define isblack(x)      testbit((x)->gch.marked, BLACKBIT)
-/* 不是黑，同时也不是任何一种白，bit.idx[2,1,0]均为0 */
+/* 是灰色吗？ 不是黑，同时也不是任何一种白，bit.idx[2,1,0]均为0 */
 #define isgray(x)	(!isblack(x) && !iswhite(x))	
+
 /* 保留 bit[7,2]位的数据，将bit[1,0]翻转 */
 #define otherwhite(g)	(g->currentwhite ^ WHITEBITS)
 
-/* 忽略bit[7,2] curWhite[1,0]->isdead[x,1]=true,curWhite[0,1]->isdead[1,x]=true 
- * curWhite[0,0]->isdead[x,x]=true,curWhite[1,1]->isdead[x,x]=false, 
+/* 忽略bit[7,2] 
+ * curWhite[1,0]->isdead[x,1]=true,
+ * curWhite[0,1]->isdead[1,x]=true 
+ * curWhite[0,0]->isdead[x,x]=true,
+ * curWhite[1,1]->isdead[x,x]=false, 
  *
  * 下面这句注释，画图理解，多理解理解
- * 看的出来curWhite中的bit.idx[1,0]中某位bit=0表示此bit的为1的object为otherwhite，是"垃圾"
+ * 看的出来curWhite中的bit.idx[1,0]中某位bit=0表示此bit的为1的object为otherwhite，是"垃圾白"
 */
 #define isdead(g,v)	((v)->gch.marked & otherwhite(g) & WHITEBITS)	/* 是dead(另一种白)吗 */
 
 /* 保留bit[7,2],翻转bit[1,0] */
 #define changewhite(x)	((x)->gch.marked ^= WHITEBITS)
+
 /* 标记bit[2]为1,其它不变 */
 #define gray2black(x)	l_setbit((x)->gch.marked, BLACKBIT)
+
 /* 是gc类型且bit[1,0]任意一位为1即可 */
 #define valiswhite(x)	(iscollectable(x) && iswhite(gcvalue(x)))
+
 /* 当前white的bits[1,0]值 */
 #define luaC_white(g)	cast(lu_byte, (g)->currentwhite & WHITEBITS)	
 

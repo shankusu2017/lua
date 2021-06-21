@@ -537,14 +537,14 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
   /* 将表达式的src.val赋值给dst(reg) */
   discharge2reg(fs, e, reg);
 
-  /* 处理表达式中剩余的未处理的JMP逻辑
-  ** eg.1:
+  /* 处理表达式中剩余的JMP逻辑
+  ** eg.2:
   ** 	local b, c
   ** 	local a = b and c
   */
   if (e->k == VJMP)
     luaK_concat(fs, &e->t, e->u.s.info);  /* put this jump in `t' list */
-  if (hasjumps(e)) {
+  if (hasjumps(e)) {	/* eg.2 */
     int final;  /* position after whole expression */
     int p_f = NO_JUMP;  /* position of an eventual LOAD false */
     int p_t = NO_JUMP;  /* position of an eventual LOAD true */
