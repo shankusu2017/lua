@@ -25,7 +25,7 @@
 #include "lparser.h"
 #include "ltable.h"
 
-/* e的类型 expdesc */
+/* 这个判断条件有意哈 */
 #define hasjumps(e)	((e)->t != (e)->f)
 
 
