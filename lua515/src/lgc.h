@@ -72,7 +72,8 @@
 #define WHITEBITS	bit2mask(WHITE0BIT, WHITE1BIT)
 
 /* 是任何一种白色吗？ bit[1,0]任一bit为1即可 */
-#define iswhite(x)      test2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)	
+#define iswhite(x)      test2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)
+
 /* 是黑色吗？ bit[2]为1即可 */
 #define isblack(x)      testbit((x)->gch.marked, BLACKBIT)
 /* 是灰色吗？ 不是黑，同时也不是任何一种白，bit.idx[2,1,0]均为0 */
@@ -110,10 +111,10 @@
   if (G(L)->totalbytes >= G(L)->GCthreshold) \
 	luaC_step(L); }
 
-/* f: forward */ 
+/* f: forward p.v */ 
 #define luaC_barrier(L,p,v) { if (valiswhite(v) && isblack(obj2gco(p)))  \
 	luaC_barrierf(L,obj2gco(p),gcvalue(v)); }
-/* for table back */
+/* for table back t.v */
 #define luaC_barriert(L,t,v) { if (valiswhite(v) && isblack(obj2gco(t)))  \
 	luaC_barrierback(L,t); }
 
@@ -122,7 +123,8 @@
 		luaC_barrierf(L,obj2gco(p),obj2gco(o)); }
 
 #define luaC_objbarriert(L,t,o)  \
-   { if (iswhite(obj2gco(o)) && isblack(obj2gco(t))) luaC_barrierback(L,t); }
+   { if (iswhite(obj2gco(o)) && isblack(obj2gco(t))) \
+   		luaC_barrierback(L,t); }
 
 LUAI_FUNC size_t luaC_separateudata (lua_State *L, int all);
 LUAI_FUNC void luaC_callGCTM (lua_State *L);

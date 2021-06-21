@@ -6,7 +6,9 @@
 
 #include <string.h>
 
-#define lgc_c
+/* 这个宏定义不知道有何用，哈哈 */
+#define lgc_c	
+
 #define LUA_CORE
 
 #include "lua.h"
@@ -28,17 +30,19 @@
 #define GCSWEEPCOST	10
 #define GCFINALIZECOST	100
 
-
+/* 11111000 */
 #define maskmarks	cast_byte(~(bitmask(BLACKBIT)|WHITEBITS))
+
 /* 清空black.bit和white0.1.bit,重新打上current_white */
 #define makewhite(g,x)	\
    ((x)->gch.marked = cast_byte(((x)->gch.marked & maskmarks) | luaC_white(g)))
+   
 /* 清空bit[1,0]白色位 */
 #define white2gray(x)	reset2bits((x)->gch.marked, WHITE0BIT, WHITE1BIT)
 #define black2gray(x)	resetbit((x)->gch.marked, BLACKBIT)
 
+/* changed2->gray */
 #define stringmark(s)	reset2bits((s)->tsv.marked, WHITE0BIT, WHITE1BIT)
-
 
 #define isfinalized(u)		testbit((u)->marked, FINALIZEDBIT)
 #define markfinalized(u)	l_setbit((u)->marked, FINALIZEDBIT)
@@ -60,8 +64,8 @@
 
 
 static void removeentry (Node *n) {
-  lua_assert(ttisnil(gval(n)));
-  if (iscollectable(gkey(n)))
+  lua_assert(ttisnil(gval(n)));		/* tbl[k] = nil */
+  if (iscollectable(gkey(n)))	/* 这个判断还是必须的 */
     setttype(gkey(n), LUA_TDEADKEY);  /* dead key; remove it */
 }
 
@@ -75,19 +79,31 @@ static void reallymarkobject (global_State *g, GCObject *o) {
   white2gray(o);	/* 清空bit[1,0]两个bit */
   switch (o->gch.tt) {
     case LUA_TSTRING: {
-      return;
+      return;	/* string不引用其它对象，直接返回 */
     }
-    case LUA_TUSERDATA: {	/* 为了加快此阶段的mark，直接将udata标记为black,将其引用的数据调用本函数继续快速标记下即可 */
+    case LUA_TUSERDATA: {	/* ud引用对象较少，这里直接gray->black */
       Table *mt = gco2u(o)->metatable;
-      gray2black(o);  /* udata are never gray ud最多可能引用mt,env，这里ud标记结束了，将其置black */
+	  
+	  /* udata are never gray 
+	  **
+	  ** 遍历完userdata引用的所有对象后，gray->black
+	  ** 本函数的目标是快速标记o,本不应该遍历o引用的对象，当时ud最多引用2个obj，
+	  **     这里就一并处理了
+	  */
+      gray2black(o);  
       if (mt) markobject(g, mt);	
       markobject(g, gco2u(o)->env);
+	  
       return;
     }
     case LUA_TUPVAL: {
       UpVal *uv = gco2uv(o);
       markvalue(g, uv->v);
-      if (uv->v == &uv->u.value)  /* closed? */
+	
+	  /*
+	  ** closed状态的upval引用的值不会再改变了，open状态的upval引用的值随时可能会变？
+	  */
+      if (uv->v == &uv->u.value)   /* closed? */
         gray2black(o);  /* open upvalues are never black */
       return;
     }
