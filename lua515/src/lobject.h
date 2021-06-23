@@ -89,7 +89,7 @@ typedef struct lua_TValue {
 #define ttislightuserdata(o)	(ttype(o) == LUA_TLIGHTUSERDATA)
 
 /* Macros to access values 
-** 根据checkconsistency函数猜测，这里的o传入的是TValues类型，而不是Object
+** 这里的o是TValues类型，而不是Object
 **
 ** !!!!注意这里返回的类型，非gc类型直接返回数值，gc类型，返回的是对象的地址(指针)
 */

@@ -38,11 +38,14 @@ const char lua_ident[] =
 
 
 /* 当前栈内是否至少有N个元素 
-** 用途：核查函数调用中实际传入的参数个数是否不小于声明的n个(eg:声明传入函数指针和N个参数，准备调用函数，结果一查既然没有那么多参数！！)
+** 用途：核查栈内实际参数个数是否不小于声明的n个
+**   (eg:声明传入函数指针和N个参数，准备调用函数，结果一查既然没有那么多参数！！)
  */
 #define api_checknelems(L, n)	api_check(L, (n) <= (L->top - L->base))
-/* index是否合法 */
+
+/* 粗暴的判断i的合法性 */
 #define api_checkvalidindex(L, i)	api_check(L, (i) != luaO_nilobject)
+
 /* 先检查top指针是否还能增长，若能则++,否则报错 */
 #define api_incr_top(L)   {api_check(L, L->top < L->ci->top); L->top++;}
 
@@ -77,9 +80,7 @@ static TValue *index2adr (lua_State *L, int idx) {
   }
 }
 
-/* 这里不得不考虑L->ci==L->base_ci 这种情况，因为对C的调用不能做任何前提假设
-** Lua代码中的getcurrenv至少有一层callinfo，但C就不能保证了！！！
-*/
+/* 这里不得不考虑L->ci==L->base_ci 这种初始情况 */
 static Table *getcurrenv (lua_State *L) {
   if (L->ci == L->base_ci)  /* no enclosing function?，哈哈：栈的初始状态了， */
     return hvalue(gt(L));  /* use global table as environment */
@@ -103,8 +104,10 @@ LUA_API int lua_checkstack (lua_State *L, int size) {
     res = 0;  /* stack overflow */
   else if (size > 0) {
     luaD_checkstack(L, size);	/* 若栈的剩余空间不足size则尝试扩展栈空间 */
+	
+	/* 确保栈顶阈值指针l->ci->top不矮于L->top+size */
     if (L->ci->top < L->top + size)	// 更新ci信息
-      L->ci->top = L->top + size;	// size过大，L->top+size可能越过了ci-top,上面调整了内存，有了上面的内存调整保证，这里也调整下ci->top */
+      L->ci->top = L->top + size;	// size过大，L->top+size可能越过了ci->top,上面调整了内存，有了上面的内存调整保证，这里也调整下ci->top */
   }
   lua_unlock(L);
   return res;
@@ -115,13 +118,13 @@ LUA_API void lua_xmove (lua_State *from, lua_State *to, int n) {
   int i;
   if (from == to) return;
   lua_lock(to);
-  api_checknelems(from, n);	// from栈内是否有不少于n个元素
-  api_check(from, G(from) == G(to));	// 不是同一个vm下，则报错(要保证线程安全)
-  api_check(from, to->ci->top - to->top >= n);	// 目的地是否有足够的空闲slot
+  api_checknelems(from, n);						// 源state栈内是否有n个元素
+  api_check(from, G(from) == G(to));			// 不属于同一个vm，则报错(要保证线程安全)
+  api_check(from, to->ci->top - to->top >= n);	// 目的state是否有足够的空闲slot
   from->top -= n;
   for (i = 0; i < n; i++) {
-    setobj2s(to, to->top++, from->top + i);	// 拷贝
-  }
+    setobj2s(to, to->top++, from->top + i);		// 执行拷贝操作
+  }	
   lua_unlock(to);
 }
 
@@ -140,7 +143,7 @@ LUA_API lua_CFunction lua_atpanic (lua_State *L, lua_CFunction panicf) {
   return old;
 }
 
-// 构建一个新的thread，注意不是state
+// 构建新的thread，注意不是state
 LUA_API lua_State *lua_newthread (lua_State *L) {
   lua_State *L1;
   lua_lock(L);
@@ -159,7 +162,7 @@ LUA_API lua_State *lua_newthread (lua_State *L) {
 ** basic stack manipulation
 */
 
-/* 本次函数调用中，压入栈的参数数量(func除外) */
+/* 当前C函数调用的栈内元素个数 */
 LUA_API int lua_gettop (lua_State *L) {
   return cast_int(L->top - L->base);
 }
@@ -185,7 +188,13 @@ LUA_API void lua_remove (lua_State *L, int idx) {
   StkId p;
   lua_lock(L);
   p = index2adr(L, idx);
-  api_checkvalidindex(L, p);	/* 这里的判断条件应该再苛刻些，不过C调用者自己应该对自己负责！*/
+  
+  /* 这里的判断条件应该再苛刻些，
+  ** 万一传入的不是指向栈那就凉凉了
+  ** 不过C调用者自己应该对自己负责！！！！
+  */
+  api_checkvalidindex(L, p);	
+  
   /* 将idx上面的slot一个一个往下移动一层 */
   while (++p < L->top) 
   	setobjs2s(L, p-1, p);
@@ -201,12 +210,15 @@ LUA_API void lua_insert (lua_State *L, int idx) {
   p = index2adr(L, idx);
   api_checkvalidindex(L, p);	/* 同上 */
   /* 画图有助于理解 */
-  for (q = L->top; q>p; q--) setobjs2s(L, q, q-1);
+  for (q = L->top; q>p; q--) 
+  	setobjs2s(L, q, q-1);
   setobjs2s(L, p, L->top);
   lua_unlock(L);
 }
 
-/* idx = top-1, top--,原来slot的值被抛弃 */
+/* idx = top-1, top--,原来slot的值被抛弃
+** 注意 barrier的调用
+*/
 LUA_API void lua_replace (lua_State *L, int idx) {
   StkId o;
   lua_lock(L);
@@ -216,9 +228,9 @@ LUA_API void lua_replace (lua_State *L, int idx) {
   api_checknelems(L, 1);
   o = index2adr(L, idx);
   api_checkvalidindex(L, o);
-  if (idx == LUA_ENVIRONINDEX) {	/* 修改func的环境变量，最好结合index2addr来看 */
+  if (idx == LUA_ENVIRONINDEX) {	/* 修改func的环境变量，最好结合index2adr来看 */
     Closure *func = curr_func(L);
-    api_check(L, ttistable(L->top - 1)); 	/* 这里必须进行类型坚持 */
+    api_check(L, ttistable(L->top - 1)); 	/* 这里必须进行类型检测 */
     func->c.env = hvalue(L->top - 1);
     luaC_barrier(L, func, L->top - 1);
   }
@@ -231,7 +243,7 @@ LUA_API void lua_replace (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-/* top-1 = idx, top++ 将idx指定的slot拷贝一份到栈顶 */
+/* top = idx, top++ 将idx指定的值拷贝一份到栈顶 */
 LUA_API void lua_pushvalue (lua_State *L, int idx) {
   lua_lock(L);
   setobj2s(L, L->top, index2adr(L, idx));
@@ -672,8 +684,8 @@ LUA_API void lua_setfield (lua_State *L, int idx, const char *k) {
   api_checknelems(L, 1);
   t = index2adr(L, idx);
   api_checkvalidindex(L, t);
-  setsvalue(L, &key, luaS_new(L, k));
-  luaV_settable(L, t, &key, L->top - 1);
+  setsvalue(L, &key, luaS_new(L, k));	
+  luaV_settable(L, t, &key, L->top - 1);	/* 内部调用了barrier */
   L->top--;  /* pop value */
   lua_unlock(L);
 }
@@ -686,7 +698,7 @@ LUA_API void lua_rawset (lua_State *L, int idx) {
   t = index2adr(L, idx);
   api_check(L, ttistable(t));
   setobj2t(L, luaH_set(L, hvalue(t), L->top-2), L->top-1);
-  luaC_barriert(L, hvalue(t), L->top-1);	/* 这里为什么不多加一句 luaC_barriert(L, hvalue(t), L->top-2); luaH_set函数已经处理了，所以这里无需再次处理 */
+  luaC_barriert(L, hvalue(t), L->top-1);	/* luaH_set 中调用了barrier(top-2)  */
   L->top -= 2;
   lua_unlock(L);
 }
@@ -712,12 +724,15 @@ LUA_API int lua_setmetatable (lua_State *L, int objindex) {
   api_checknelems(L, 1);
   obj = index2adr(L, objindex);
   api_checkvalidindex(L, obj);
+
+  /* 获得元表 */
   if (ttisnil(L->top - 1))
     mt = NULL;
   else {
     api_check(L, ttistable(L->top - 1));
     mt = hvalue(L->top - 1);
   }
+  
   switch (ttype(obj)) {
     case LUA_TTABLE: {
       hvalue(obj)->metatable = mt;

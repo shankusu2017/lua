@@ -143,7 +143,7 @@ void luaV_settable (lua_State *L, const TValue *t, TValue *key, StkId val) {
           (tm = fasttm(L, h->metatable, TM_NEWINDEX)) == NULL) { /* or no TM? */
         setobj2t(L, oldval, val);
         h->flags = 0;	/* 更新flags:假设所有的tm都存在 */
-        luaC_barriert(L, h, val);
+        luaC_barriert(L, h, val);	/* key的barrier在上面的luaH_set中调用了 */
         return;
       }
       /* else will try the tag method */

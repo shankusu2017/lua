@@ -85,7 +85,7 @@ typedef struct global_State {
   stringtable strt;  /* hash table for strings */
   lua_Alloc frealloc;  /* function to reallocate memory */
   void *ud;         /* auxiliary data to `frealloc' */
-  lu_byte currentwhite;
+  lu_byte currentwhite;	/* 原子扫描完毕时，切换此值 */
   lu_byte gcstate;  /* state of garbage collector */
   int sweepstrgc;  /* position of sweep in `strt' */
   GCObject *rootgc;  /* list of all collectable objects */
@@ -116,8 +116,12 @@ typedef struct global_State {
 struct lua_State {
   CommonHeader;
   lu_byte status;
-  
-  StkId top;  /* first free slot in the stack, 当前指向的addr是可用的！！！ */
+
+   /* 对于C.frame:first free slot in the stack, 当前指向的addr是可用的！！！
+   ** 对于Lua.frame 一般情况下L->top=L->ci->top(lua编译阶段即可知道Lua函数栈需要的最大值)
+   **     在执行有关动态参数的指令时，用于指示最后一个参数的位置？用于计算参数的具体数量
+   */
+  StkId top; 
   StkId base;  /* base of current function, 当前调用frame中，第一个形参的addr，具体解释看CallInfo */
   /* 没有额外定义func，这点有印象就好 */
   

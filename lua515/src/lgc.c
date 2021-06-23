@@ -101,7 +101,7 @@ static void reallymarkobject (global_State *g, GCObject *o) {
       markvalue(g, uv->v);
 	
 	  /*
-	  ** closed状态的upval引用的值不会再改变了，open状态的upval引用的值随时可能会变？
+	  **
 	  */
       if (uv->v == &uv->u.value)   /* closed? */
         gray2black(o);  /* open upvalues are never black */
@@ -194,7 +194,10 @@ static int traversetable (global_State *g, Table *h) {
       g->weak = obj2gco(h);  /* ... so put in the appropriate list */
     }
   }
-  if (weakkey && weakvalue) return 1; /* 根据weak-key,weak-val的定义，不用再进一步扫描了，直接返回 */
+  
+  /* key和val都是弱引用，则无需扫描表，直接返回 */
+  if (weakkey && weakvalue) return 1;
+  
   if (!weakvalue) {
     i = h->sizearray;
     while (i--)
@@ -204,10 +207,12 @@ static int traversetable (global_State *g, Table *h) {
   while (i--) {
     Node *n = gnode(h, i);
     lua_assert(ttype(gkey(n)) != LUA_TDEADKEY || ttisnil(gval(n)));
-    if (ttisnil(gval(n)))	/* 显然，如果val为nil,则不用扫描对应的key了，因为key在这个表中已经"死亡了" */
+  
+  	/* val为nil则标记key为LUA_TDEADKEY */
+    if (ttisnil(gval(n)))	
       removeentry(n);  /* remove empty entries */
     else {
-      lua_assert(!ttisnil(gkey(n)));	/* 这里再次要求不能出现nil-key--->noNil->val */
+      lua_assert(!ttisnil(gkey(n)));	/* 判断下是否出现了lua[nil]=val */
       if (!weakkey) markvalue(g, gkey(n));
       if (!weakvalue) markvalue(g, gval(n));
     }
@@ -302,7 +307,7 @@ static l_mem propagatemark (global_State *g) {
     case LUA_TTABLE: {
       Table *h = gco2h(o);
       g->gray = h->gclist;	/* 将其从gray链表中移除 */
-      if (traversetable(g, h))  /* table is weak?,black不能引用white，根据弱表的定义，这里需要barrier_back或barrierf，这里选择了back */
+      if (traversetable(g, h))  /* table is weak? 如果是弱表，则会被放入g->weak中等待后面atomic扫描，故而这里black2gray */
         black2gray(o);  /* keep it gray */
       return sizeof(Table) + sizeof(TValue) * h->sizearray +
                              sizeof(Node) * sizenode(h);
@@ -367,6 +372,7 @@ static int iscleared (const TValue *o, int iskey) {
 
 /*
 ** clear collected entries from weaktables
+** 专用函数(weaktable)
 */
 static void cleartable (GCObject *l) {
   while (l) {
@@ -423,7 +429,7 @@ static void freeobj (lua_State *L, GCObject *o) {
 
 #define sweepwholelist(L,p)	sweeplist(L,p,MAX_LUMEM)
 
-
+/* 清扫list上的垃圾obj, 非垃圾则切换到currentwhite */
 static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
   GCObject *curr;
   global_State *g = G(L);
@@ -565,8 +571,9 @@ static void atomic (lua_State *L) {
   marktmu(g);  /* mark `preserved' userdata */
   udsize += propagateall(g);  /* remark, to propagate `preserveness' */
   cleartable(g->weak);  /* remove collected objects from weak tables */
+  
   /* flip current white */
-  g->currentwhite = cast_byte(otherwhite(g));
+  g->currentwhite = cast_byte(otherwhite(g));	/* 切换currentwhite */
   g->sweepstrgc = 0;
   g->sweepgc = &g->rootgc;
   g->gcstate = GCSsweepstring;

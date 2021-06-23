@@ -128,10 +128,12 @@ lua_State *luaE_newthread (lua_State *L) {
   L1->basehookcount = L->basehookcount;
   L1->hook = L->hook;
   resethookcount(L1);
+  
   /* 这个判断是必要的，因为新生的thread尚未有任何对象引用它，可能被GC？
-  ** 此assert判断上面的代码不能触发gc流程
+  ** 不太明白这里iswhite的判断条件
   */
   lua_assert(iswhite(obj2gco(L1)));
+  
   return L1;
 }
 

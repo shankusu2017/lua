@@ -35,32 +35,37 @@
 /*
 ** pseudo-indices（伪索引）
 */
-/* 注册表：供C各个模块使用，比如(io,package)，C自己要有机制避免key冲突(用不同的前缀作为uuid-key)
-** 表由globalState->l_registry域指针引用
-** _LOADED.libname 子表用于存放lua原生的辅助库的加载数据(reg._LOADED.libname=gbl.libname)
-** (LOADLIB: libpath) 子域用于存放玩家代码中加载的第三方库的加载数据
-** _LOADLIB 子域名，用于存放package库的公用元表
-** "FILE*" 子域名，用于存放io库的公用元表
+/* 注册表：供C各个模块使用，比如(io,package)，C自己要有机制避免key冲突(不同模块用不同的前缀)
+** 表存放在globalState->l_registry中
+** _LOADED.libname 		子域，用于存放lua原生的辅助库的加载数据(reg._LOADED.libname=gbl.libname)
+** (LOADLIB: libpath) 	子域，用于存放玩家代码中加载的第三方库的加载数据
+** _LOADLIB 			子域，用于存放package库的公用元表
+** "FILE*" 				子域，用于存放io库的公用元表
 */
 #define LUA_REGISTRYINDEX	(-10000)
 
-// 指代正在运行的C/Lua函数的环境Closure.env域
+// 指代正在运行的Closure.env域
 #define LUA_ENVIRONINDEX	(-10001)
+
 // Lua全局变量，由globalstate->l_gt引用
 #define LUA_GLOBALSINDEX	(-10002)
+
 // Closure关联的upvalues
 #define lua_upvalueindex(i)	(LUA_GLOBALSINDEX-(i))
+
+
 
 /* thread status; 0 is OK */
 #define LUA_YIELD	1
 #define LUA_ERRRUN	2
+/* 词法,语法错误 */
 #define LUA_ERRSYNTAX	3
 #define LUA_ERRMEM	4
 #define LUA_ERRERR	5
 
 
 typedef struct lua_State lua_State;
-// 能被Lua虚拟机执行的C函数的原型约定
+// 被Lua虚拟机执行的C函数原型要求
 typedef int (*lua_CFunction) (lua_State *L);
 
 
@@ -89,7 +94,11 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 #define LUA_TBOOLEAN		1
 #define LUA_TLIGHTUSERDATA	2	/* lua不管理其声明周期(gc) */
 #define LUA_TNUMBER		3
+
+/* gc管理生命周期 */
+/* 存放在单独的表中 */
 #define LUA_TSTRING		4
+/* 存放在global.state.rootgc中 */
 #define LUA_TTABLE		5
 #define LUA_TFUNCTION		6
 #define LUA_TUSERDATA		7
@@ -125,6 +134,7 @@ typedef LUA_INTEGER lua_Integer;
 */
 LUA_API lua_State *(lua_newstate) (lua_Alloc f, void *ud);
 LUA_API void       (lua_close) (lua_State *L);
+
 LUA_API lua_State *(lua_newthread) (lua_State *L);
 
 LUA_API lua_CFunction (lua_atpanic) (lua_State *L, lua_CFunction panicf);
@@ -134,14 +144,26 @@ LUA_API lua_CFunction (lua_atpanic) (lua_State *L, lua_CFunction panicf);
 ** basic stack manipulation
 */
 LUA_API int   (lua_gettop) (lua_State *L);
-LUA_API void  (lua_settop) (lua_State *L, int idx);	/* 移动top指针，达到扩大或缩小栈元素的作用 */
+
+/* 移动top指针，扩大或缩小栈 */
+LUA_API void  (lua_settop) (lua_State *L, int idx);	
+
+/* 将idx指定的值拷贝一份到栈顶,top++ */
 LUA_API void  (lua_pushvalue) (lua_State *L, int idx);
+
+/* 删除idx指向的栈内元素，将元素上面的所有元素下层一格 */
 LUA_API void  (lua_remove) (lua_State *L, int idx);
+
+/* 将栈顶元素和栈内idx元素互换 */
 LUA_API void  (lua_insert) (lua_State *L, int idx);
-LUA_API void  (lua_replace) (lua_State *L, int idx);	/* idx=top-1, top-- */
-/* */
+
+/* 用栈顶值替换idx指定的值，top-- */
+LUA_API void  (lua_replace) (lua_State *L, int idx);
+
+/* 若栈的剩余空间小于size则尝试拓展栈空间 */
 LUA_API int   (lua_checkstack) (lua_State *L, int sz);
 
+/* 从from的栈顶移走N个元素到to(主要用于调试和coroutinue库) */
 LUA_API void  (lua_xmove) (lua_State *from, lua_State *to, int n);
 
 
@@ -154,7 +176,8 @@ LUA_API int             (lua_isstring) (lua_State *L, int idx);
 LUA_API int             (lua_iscfunction) (lua_State *L, int idx);
 LUA_API int             (lua_isuserdata) (lua_State *L, int idx);
 LUA_API int             (lua_type) (lua_State *L, int idx);
-LUA_API const char     *(lua_typename) (lua_State *L, int tp);	/* 返回const ^_^ */
+/* ！！这里返回的是const */
+LUA_API const char     *(lua_typename) (lua_State *L, int tp);
 
 LUA_API int            (lua_equal) (lua_State *L, int idx1, int idx2);
 LUA_API int            (lua_rawequal) (lua_State *L, int idx1, int idx2);
@@ -179,9 +202,10 @@ LUA_API void  (lua_pushnumber) (lua_State *L, lua_Number n);
 LUA_API void  (lua_pushinteger) (lua_State *L, lua_Integer n);
 LUA_API void  (lua_pushlstring) (lua_State *L, const char *s, size_t l);
 LUA_API void  (lua_pushstring) (lua_State *L, const char *s);
-LUA_API const char *(lua_pushvfstring) (lua_State *L, const char *fmt,
-                                                      va_list argp);
+
+LUA_API const char *(lua_pushvfstring) (lua_State *L, const char *fmt, va_list argp);
 LUA_API const char *(lua_pushfstring) (lua_State *L, const char *fmt, ...);
+
 LUA_API void  (lua_pushcclosure) (lua_State *L, lua_CFunction fn, int n);
 LUA_API void  (lua_pushboolean) (lua_State *L, int b);
 LUA_API void  (lua_pushlightuserdata) (lua_State *L, void *p);
@@ -190,7 +214,6 @@ LUA_API int   (lua_pushthread) (lua_State *L);
 
 /*
 ** get functions (Lua -> stack)
-** 这里lua主要指系统辅助库?
 */
 LUA_API void  (lua_gettable) (lua_State *L, int idx);
 LUA_API void  (lua_getfield) (lua_State *L, int idx, const char *k);
@@ -198,6 +221,7 @@ LUA_API void  (lua_rawget) (lua_State *L, int idx);
 LUA_API void  (lua_rawgeti) (lua_State *L, int idx, int n);
 LUA_API void  (lua_createtable) (lua_State *L, int narr, int nrec);
 LUA_API void *(lua_newuserdata) (lua_State *L, size_t sz);
+/* 尝试提取指定元素objindex的mt/env到栈顶,top++ */
 LUA_API int   (lua_getmetatable) (lua_State *L, int objindex);
 LUA_API void  (lua_getfenv) (lua_State *L, int idx);
 
@@ -268,13 +292,15 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 ** some useful macros
 ** ===============================================================
 */
-/* 从栈顶移除n个元素 */
+/* 从栈顶弹出n个元素 */
 #define lua_pop(L,n)		lua_settop(L, -(n)-1)
 
 #define lua_newtable(L)		lua_createtable(L, 0, 0)
-/* 注册全局的name的function */
+
+/* 注册名字为n的全局closure */
 #define lua_register(L,n,f) (lua_pushcfunction(L, (f)), lua_setglobal(L, (n)))
 
+/* 用指定的c函数构建一个closure到栈顶 */
 #define lua_pushcfunction(L,f)	lua_pushcclosure(L, (f), 0)
 
 #define lua_strlen(L,i)		lua_objlen(L, (i))
@@ -288,8 +314,10 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 #define lua_isnone(L,n)		(lua_type(L, (n)) == LUA_TNONE)
 #define lua_isnoneornil(L, n)	(lua_type(L, (n)) <= 0)
 
+/* literal:文字 */
 #define lua_pushliteral(L, s)	\
 	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
+	
 /* gbl[s] = top-1, top-- */
 #define lua_setglobal(L,s)	lua_setfield(L, LUA_GLOBALSINDEX, (s))
 /* top = gbl[s], top++ */
@@ -303,6 +331,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 ** compatibility macros and functions
 */
 
+/* 构建一个全新的虚拟机 */
 #define lua_open()	luaL_newstate()
 
 #define lua_getregistry(L)	lua_pushvalue(L, LUA_REGISTRYINDEX)
