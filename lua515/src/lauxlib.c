@@ -253,7 +253,12 @@ static int libsize (const luaL_Reg *l) {
   return size;
 }
 
-
+/*
+** REG[_LOADED][libname][funX] = closureX 
+** GBL[libn][xx][yy] = REG[_LOADED][libname]
+**
+** "libn.xx.yy" = libname
+*/
 LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
                               const luaL_Reg *l, int nup) {
   /* 
@@ -281,6 +286,7 @@ LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
     lua_remove(L, -2);  /*  remove _LOADED table */
     lua_insert(L, -(nup+1));  /* move library table to below upvalues */
   }
+
   // step5
   for (; l->name; l++) {
     int i;
@@ -386,18 +392,21 @@ LUALIB_API const char *luaL_gsub (lua_State *L, const char *s, const char *p,
 LUALIB_API const char *luaL_findtable (lua_State *L, int idx,
                                        const char *fname, int szhint) {
   const char *e;
-  lua_pushvalue(L, idx);	// 压入被检索的原始表tlb1
+  lua_pushvalue(L, idx);	// 压入被检索的原始表tbl1
   do {
     e = strchr(fname, '.');
-	// 不能用.分割出下一个字符了,con1:fname=_LOADED这种本来就无法风格的，con2:xxx.yy 最后的yy
-    if (e == NULL) e = fname + strlen(fname);	
+	// 不能用.分割出下一个字符了,con1:fname=aa这种无法分割，con2:xx.yy.zz 最后的yy
+    if (e == NULL) 
+		e = fname + strlen(fname);	
     lua_pushlstring(L, fname, e - fname);	// 压入key1
-    lua_rawget(L, -2);						// top-1 = tbl1[key],key被删除
+    lua_rawget(L, -2);						// top-1 = tbl1[key1],key1被删除
     if (lua_isnil(L, -1)) {  /* no such field? */
       lua_pop(L, 1);  /* remove this nil */
+	  
       lua_createtable(L, 0, (*e == '.' ? 1 : szhint)); /* new table2 for field */
-      lua_pushlstring(L, fname, e - fname);
+      lua_pushlstring(L, fname, e - fname);	/* 压入xx */
       lua_pushvalue(L, -2);
+	  
       lua_settable(L, -4);  /* set new table into field，相当于构建一个新表tbl2当作tbl1[key]的结果放到top=2上 */
     }
     else if (!lua_istable(L, -1)) {  /* field has a non-table value?,类型非法，直接返回 */
@@ -406,7 +415,7 @@ LUALIB_API const char *luaL_findtable (lua_State *L, int idx,
     }
     lua_remove(L, -2);  /* remove previous table，删除前一个tbl1,现在stack只剩下作为检索结果的tbl2 */
     fname = e + 1;
-  } while (*e == '.');	/* 还有下一个域，则继续执行 */
+  } while (*e == '.');	/* 还有下一个子域，则继续执行 */
   return NULL;
 }
 
@@ -416,6 +425,8 @@ LUALIB_API const char *luaL_findtable (lua_State *L, int idx,
 ** {======================================================
 ** Generic Buffer manipulation
 ** =======================================================
+**
+** 主要被字符串拼接业务调用
 */
 
 
@@ -436,7 +447,7 @@ static int emptybuffer (luaL_Buffer *B) {
   }
 }
 
-
+/* 合并从top-1到-(B-level)之间符合条件的字符串到栈顶 */
 static void adjuststack (luaL_Buffer *B) {
   if (B->lvl > 1) {
     lua_State *L = B->L;
@@ -457,9 +468,9 @@ static void adjuststack (luaL_Buffer *B) {
   }
 }
 
-/* 将当前的buf(若携带数据)压入栈顶 */
+/* 将当前的buf(若携带数据)压入栈顶,再尝试合并栈顶元素 */
 LUALIB_API char *luaL_prepbuffer (luaL_Buffer *B) {
-  if (emptybuffer(B))
+  if (emptybuffer(B))	
     adjuststack(B);
   return B->buffer;
 }
