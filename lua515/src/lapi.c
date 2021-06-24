@@ -528,7 +528,7 @@ LUA_API void lua_pushboolean (lua_State *L, int b) {
   lua_unlock(L);
 }
 
-/* 这里看到lightuserdata需要C宿主自己管理生命周期 */
+/*  */
 LUA_API void lua_pushlightuserdata (lua_State *L, void *p) {
   lua_lock(L);
   setpvalue(L->top, p);
@@ -551,7 +551,7 @@ LUA_API int lua_pushthread (lua_State *L) {
 ** get functions (Lua -> stack)
 */
 
-/* 获取由idx指定的table中的key=L->top-1的值，将其放到L->top-1上
+/* 
  * top-1 = idx[top-1]
 */
 LUA_API void lua_gettable (lua_State *L, int idx) {
@@ -563,7 +563,7 @@ LUA_API void lua_gettable (lua_State *L, int idx) {
   lua_unlock(L);
 }
 
-/* top=idx[k], top++*/
+/* top = idx[k], top++ */
 LUA_API void lua_getfield (lua_State *L, int idx, const char *k) {
   StkId t;
   TValue key;
@@ -606,7 +606,7 @@ LUA_API void lua_createtable (lua_State *L, int narray, int nrec) {
   lua_unlock(L);
 }
 
-/* idx对应的values是否有元表，若有则压入栈顶 */
+/* 若idx.mt存在则 top = idx.mt, top++ */
 LUA_API int lua_getmetatable (lua_State *L, int objindex) {
   const TValue *obj;
   Table *mt = NULL;
@@ -635,7 +635,7 @@ LUA_API int lua_getmetatable (lua_State *L, int objindex) {
   return res;
 }
 
-/* 按照idx指向的slot的不同的类型，提取对应的env */
+/* top = idx.env, top++ */
 LUA_API void lua_getfenv (lua_State *L, int idx) {
   StkId o;
   lua_lock(L);
@@ -664,7 +664,7 @@ LUA_API void lua_getfenv (lua_State *L, int idx) {
 ** set functions (stack -> Lua)
 */
 
-/* 给指定的table设置key=val       idx[top-2] = top-1, top-=2 */
+/*  idx[top-2] = top-1, top-=2 */
 LUA_API void lua_settable (lua_State *L, int idx) {
   StkId t;
   lua_lock(L);
@@ -737,7 +737,7 @@ LUA_API int lua_setmetatable (lua_State *L, int objindex) {
     case LUA_TTABLE: {
       hvalue(obj)->metatable = mt;
       if (mt)
-        luaC_objbarriert(L, hvalue(obj), mt);
+        luaC_objbarriert(L, hvalue(obj), mt);	/* 留意这里的barrier设置 */
       break;
     }
     case LUA_TUSERDATA: {
@@ -779,7 +779,7 @@ LUA_API int lua_setfenv (lua_State *L, int idx) {
       res = 0;
       break;
   }
-  if (res) luaC_objbarrier(L, gcvalue(o), hvalue(L->top - 1));
+  if (res) luaC_objbarrier(L, gcvalue(o), hvalue(L->top - 1));	/* barrier设置 */
   L->top--;
   lua_unlock(L);
   return res;
@@ -790,11 +790,11 @@ LUA_API int lua_setfenv (lua_State *L, int idx) {
 ** `load' and `call' functions (run Lua code)
 */
 
-/* 函数调用流程中：会调整L->top，这里对L->ci->top再次确认下? */
+/* 尝试调整L->ci->top，确保 L->top <= L->ci->top 的规则不会变  */
 #define adjustresults(L,nres) \
     { if (nres == LUA_MULTRET && L->top >= L->ci->top) L->ci->top = L->top; }
 
-/* na=nargs(传入的参数), nr=nresults(期待的返回参数个数) */
+/* 检测栈空间是否能容纳声明的所有返回参数 */
 #define checkresults(L,na,nr) \
      api_check(L, (nr) == LUA_MULTRET || (L->ci->top - L->top >= (nr) - (na)))
 	
@@ -817,7 +817,12 @@ LUA_API void lua_call (lua_State *L, int nargs, int nresults) {
 */
 struct CallS {  /* data to `f_call' */
   StkId func;
-  int nresults;	/* 本次调用期待返回的函数个数 func()-->nresult=0+1, local a, b = func()--->nresults=2+1, funA(funB())--->LUA_MULTRET(-1) */
+  /* 本次调用期待的返回值个数
+  ** func()-->0, 
+  ** local a, b = func()--->2, 
+  ** funA(funB())--->-1（LUA_MULTRET）
+  */
+  int nresults;	
 };
 
 
@@ -833,7 +838,7 @@ LUA_API int lua_pcall (lua_State *L, int nargs, int nresults, int errfunc) {
   int status;
   ptrdiff_t func;	/* errHdl */
   lua_lock(L);
-  api_checknelems(L, nargs+1);	// fun+nargs=nargs+1
+  api_checknelems(L, 1+nargs);	// fun+nargs
   checkresults(L, nargs, nresults);
   if (errfunc == 0)
     func = 0;
@@ -1101,7 +1106,7 @@ LUA_API const char *lua_getupvalue (lua_State *L, int funcindex, int n) {
   return name;
 }
 
-
+/* funcindex.upvalue[n] = top - 1, top-- */
 LUA_API const char *lua_setupvalue (lua_State *L, int funcindex, int n) {
   const char *name;
   TValue *val;
@@ -1113,7 +1118,7 @@ LUA_API const char *lua_setupvalue (lua_State *L, int funcindex, int n) {
   if (name) {
     L->top--;
     setobj(L, val, L->top);
-    luaC_barrier(L, clvalue(fi), L->top);
+    luaC_barrier(L, clvalue(fi), L->top);	/* 更新barrier */
   }
   lua_unlock(L);
   return name;

@@ -99,7 +99,7 @@
 /* 标记bit[2]为1,其它不变 */
 #define gray2black(x)	l_setbit((x)->gch.marked, BLACKBIT)
 
-/* 是gc类型且bit[1,0]任意一位为1即可 */
+/* gc类型且bit[1,0]任意一位为1 */
 #define valiswhite(x)	(iscollectable(x) && iswhite(gcvalue(x)))
 
 /* 当前white的bits[1,0]值 */
