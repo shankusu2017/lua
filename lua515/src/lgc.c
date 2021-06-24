@@ -4,6 +4,14 @@
 ** See Copyright Notice in lua.h
 */
 
+
+/*
+** 疑惑点：
+** C层在栈上创建GCObject时，如何保证没有被GC回收？
+**
+*/
+
+
 #include <string.h>
 
 /* 这个宏定义不知道有何用，哈哈 */
@@ -641,11 +649,13 @@ void luaC_step (lua_State *L) {
   if (lim == 0)
     lim = (MAX_LUMEM-1)/2;  /* no limit */
   g->gcdept += g->totalbytes - g->GCthreshold;
+  
   do {
     lim -= singlestep(L);
     if (g->gcstate == GCSpause)
       break;
   } while (lim > 0);
+	
   if (g->gcstate != GCSpause) {
     if (g->gcdept < GCSTEPSIZE)
       g->GCthreshold = g->totalbytes + GCSTEPSIZE;  /* - lim/g->gcstepmul;*/

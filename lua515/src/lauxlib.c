@@ -95,7 +95,7 @@ LUALIB_API int luaL_error (lua_State *L, const char *fmt, ...) {
 
 /* }====================================================== */
 
-/* 参数narg是否是后续lst数组中的某个元素之一，若narg无需则用def:default替代narg替代 */
+/* narg参数为空则尝试用def替代，查找参数在lst的索引 */
 LUALIB_API int luaL_checkoption (lua_State *L, int narg, const char *def,
                                  const char *const lst[]) {
   const char *name = (def) ? luaL_optstring(L, narg, def) :
@@ -108,9 +108,13 @@ LUALIB_API int luaL_checkoption (lua_State *L, int narg, const char *def,
                        lua_pushfstring(L, "invalid option " LUA_QS, name));
 }
 
-/* 获取reg中的域对应的表，没有则构建,保留在stack->top, top++
- ** 这里生成一份统一的meattable,整个c库(io,tbl)公用，节省MEM，加速程序运行
- ** 挂在REG上，避免被gc?
+/* 
+ ** step.1 获取REG.tname到栈顶，若域存在，则返回
+ ** step.2 构建空表，REG.tname=tbl，将新构建的表保留在栈上
+ ** 
+ ** 总结：调用结束时：top=REG.tname，返回0：已存在，1：新构建
+ **
+ ** 一个子库共用一份metatable
 */
 LUALIB_API int luaL_newmetatable (lua_State *L, const char *tname) {
   lua_getfield(L, LUA_REGISTRYINDEX, tname);  /* get registry.name */
@@ -123,7 +127,9 @@ LUALIB_API int luaL_newmetatable (lua_State *L, const char *tname) {
   return 1;
 }
 
-/* ud代表的userdata的metatable是否和reg[tname]一致？ */
+/* ud的metatable是否和reg[tname]一致？
+** 检查ud的元表是否被修改过(设计约束：ud的元表不能被修改)
+*/
 LUALIB_API void *luaL_checkudata (lua_State *L, int ud, const char *tname) {
   void *p = lua_touserdata(L, ud);
   if (p != NULL) {  /* value is a userdata? */
@@ -151,7 +157,7 @@ LUALIB_API void luaL_checktype (lua_State *L, int narg, int t) {
     tag_error(L, narg, t);
 }
 
-/* narg索引对应的values是不是一个合法的值 */
+/* narg索引对应的values是不是一个合法的类型 */
 LUALIB_API void luaL_checkany (lua_State *L, int narg) {
   if (lua_type(L, narg) == LUA_TNONE)
     luaL_argerror(L, narg, "value expected");
@@ -204,16 +210,22 @@ LUALIB_API lua_Integer luaL_optinteger (lua_State *L, int narg,
 
 
 LUALIB_API int luaL_getmetafield (lua_State *L, int obj, const char *event) {
+  /* 提取obj.mt到栈顶,top++ */
   if (!lua_getmetatable(L, obj))  /* no metatable? */
     return 0;
+
+  /* 将作为key的event压入栈顶,top++ */
   lua_pushstring(L, event);
+  
+  /* top-1 = obj.mt[top-1]*/
   lua_rawget(L, -2);
+  
   if (lua_isnil(L, -1)) {	/* 移除元表和event */
     lua_pop(L, 2);  /* remove metatable and metafield */
     return 0;
   }
   else {
-    lua_remove(L, -2);  /* remove only metatable */
+    lua_remove(L, -2);  /* remove only metatable, reserve metafield */
     return 1;
   }
 }
