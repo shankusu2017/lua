@@ -55,7 +55,7 @@ static int luaB_tonumber (lua_State *L) {
   int base = luaL_optint(L, 2, 10);
   if (base == 10) {  /* standard conversion 默认10进制*/
     luaL_checkany(L, 1);
-    if (lua_isnumber(L, 1)) {	// 只要idx=1是num或能转换成num均可 */
+    if (lua_isnumber(L, 1)) {	// 只要idx=1是num或能转换成num均可
       lua_pushnumber(L, lua_tonumber(L, 1));
       return 1;
     }

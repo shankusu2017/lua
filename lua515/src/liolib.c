@@ -26,7 +26,10 @@
 
 static const char *const fnames[] = {"input", "output"};
 
-
+/* 
+** RETURNS: 成功：true
+**          失败：nil, filename, errdesc
+*/
 static int pushresult (lua_State *L, int i, const char *filename) {
   int en = errno;  /* calls to Lua API may change this value */
   if (i) {
@@ -50,7 +53,7 @@ static void fileerror (lua_State *L, int arg, const char *filename) {
   luaL_argerror(L, arg, lua_tostring(L, -1));
 }
 
-
+/* 二级指针 */
 #define tofilep(L)	((FILE **)luaL_checkudata(L, 1, LUA_FILEHANDLE))
 
 /* io.type (obj) */
@@ -62,7 +65,7 @@ static int io_type (lua_State *L) {
   /* 输入数据是否合法？*/
   if (ud == NULL || !lua_getmetatable(L, 1) || !lua_rawequal(L, -2, -1))
     lua_pushnil(L);  /* not a file */
-  else if (*((FILE **)ud) == NULL)
+  else if (*((FILE **)ud) == NULL)	/* */
     lua_pushliteral(L, "closed file");
   else
     lua_pushliteral(L, "file");
@@ -129,7 +132,10 @@ static int io_fclose (lua_State *L) {
   return pushresult(L, ok, NULL);
 }
 
-/* idx[1].env.__close(idx[-1]) */
+/* 堆栈
+** idx[1].env.__close
+** idx[1].env
+*/
 static int aux_close (lua_State *L) {
   lua_getfenv(L, 1);
   lua_getfield(L, -1, "__close");
@@ -192,7 +198,9 @@ static int io_tmpfile (lua_State *L) {
   return (*pf == NULL) ? pushresult(L, 0, NULL) : 1;
 }
 
-/* 这里findex：file index而非一般意义上的statck[index] */
+/* 
+** findex： IO_INPUT，IO_OUTPUT
+*/
 static FILE *getiofile (lua_State *L, int findex) {
   FILE *f;
   lua_rawgeti(L, LUA_ENVIRONINDEX, findex);
@@ -202,7 +210,7 @@ static FILE *getiofile (lua_State *L, int findex) {
   return f;
 }
 
-
+/* f: IO_INPUT/ IO_OUTPUT */
 static int g_iofile (lua_State *L, int f, const char *mode) {
   if (!lua_isnoneornil(L, 1)) {
     const char *filename = lua_tostring(L, 1);
@@ -223,7 +231,10 @@ static int g_iofile (lua_State *L, int f, const char *mode) {
   return 1;
 }
 
-/* io.input ([file]) */
+/* io.input([file])
+** 如果输入了文件名或句柄则将其设置为默认的input文件句柄
+** 如果输入为空，则返回当前默认的input文件句柄
+*/
 static int io_input (lua_State *L) {
   return g_iofile(L, IO_INPUT, "r");
 }
@@ -236,7 +247,9 @@ static int io_output (lua_State *L) {
 
 static int io_readline (lua_State *L);
 
-
+/*
+** 用给定的upval和函数生成Closure
+*/
 static void aux_lines (lua_State *L, int idx, int toclose) {
   lua_pushvalue(L, idx);
   lua_pushboolean(L, toclose);  /* close/not close file when finished */
@@ -250,12 +263,25 @@ static int f_lines (lua_State *L) {
   return 1;
 }
 
-
+/*
+** Opens the given file name in read mode and returns an iterator function that, 
+** each time it is called, returns a new line from the file. 
+** Therefore, the construction 
+**      for line in io.lines(filename) do body end
+** will iterate over all lines of the file. When the iterator function detects the end of file, it returns
+** nil (to finish the loop) and automatically closes the file.
+** The call io.lines() (with no file name) is equivalent to io.input():lines(); that is, it
+** iterates over the lines of the default input file. In this case it does not close the file when the
+** loop ends.
+*/
 static int io_lines (lua_State *L) {
   if (lua_isnoneornil(L, 1)) {  /* no arguments? */
     /* will iterate over default input */
     lua_rawgeti(L, LUA_ENVIRONINDEX, IO_INPUT);
-    return f_lines(L);	/* 返回 CClosure(func:io_readline, upvalues{input.fd, false}) */
+	/* 返回 CClosure(func:io_readline, upvalues{input.fd, false}), 
+	** false代表着：toclose的开关为false 
+	*/
+    return f_lines(L);	
   }
   else {
   	/* 返回 CClosure(func:io_readline, upvalues{arg.fd, true}) */
@@ -450,7 +476,7 @@ static int f_write (lua_State *L) {
 static int f_seek (lua_State *L) {
   static const int mode[] = {SEEK_SET, SEEK_CUR, SEEK_END};
   static const char *const modenames[] = {"set", "cur", "end", NULL};
-  FILE *f = tofile(L);
+  FILE *f = tofile(L);	/* 只能对FILE句柄进行此项操作，下同 */
   int op = luaL_checkoption(L, 2, "cur", modenames);
   long offset = luaL_optlong(L, 3, 0);
   op = fseek(f, offset, mode[op]);
@@ -514,7 +540,7 @@ static const luaL_Reg flib[] = {
   {NULL, NULL}
 };
 
-
+/* 构建一张libio库的公共元表 */
 static void createmeta (lua_State *L) {
   luaL_newmetatable(L, LUA_FILEHANDLE);  /* create metatable for file handles */
   lua_pushvalue(L, -1);  /* push metatable */
@@ -523,32 +549,33 @@ static void createmeta (lua_State *L) {
   /* 运行完毕，栈上多了一个mt */
 }
 
-
+/*
+** step.1 构建代表stdxx的userdata
+** step.2 cur->func->env[IO_INPUT/xx] = userdata
+** step.3 userdata.env = env.tbl3
+** step.4 gbl[io][fname] = userdata
+**
+** 可以将step.2<->step.2
+*/
 static void createstdfile (lua_State *L, FILE *f, int k, const char *fname) {
-  *newfile(L) = f;
+  *newfile(L) = f;				/* create userdata */
   
   int n = lua_gettop(L);
   if (k > 0) {
     lua_pushvalue(L, -1);
-	n = lua_gettop(L);
-    lua_rawseti(L, LUA_ENVIRONINDEX, k);
-	n = lua_gettop(L);
+    lua_rawseti(L, LUA_ENVIRONINDEX, k);	/* cur->func->env[IO_INPUT] = userdata */
   }
-  n = lua_gettop(L);
-  lua_pushvalue(L, -2);  /* copy environment */
-  n = lua_gettop(L);
-  lua_setfenv(L, -2);  /* set it */
-  n = lua_gettop(L);
-  lua_setfield(L, -3, fname);
-  n = lua_gettop(L);
-  n = lua_gettop(L);
+  
+  lua_pushvalue(L, -2);  		/* copy environment */
+  
+  lua_setfenv(L, -2);  			/*  userdata.env = tbl3 */
+  
+  lua_setfield(L, -3, fname);	/* gbl_io[fname] = userdata */
 }
 
-/* top-1 = {}, top++ 
-** top-1 = closure, top++
-** tbl.__close = closure, top--
-
-** 结束后,栈上多了一个tbl.__close=closure{f=cls}
+/*
+** 构建一张被当作env用的表tbl
+** tbl[__close] = cls
 */
 static void newfenv (lua_State *L, lua_CFunction cls) {
   lua_createtable(L, 0, 1);
@@ -558,38 +585,28 @@ static void newfenv (lua_State *L, lua_CFunction cls) {
 
 
 LUALIB_API int luaopen_io (lua_State *L) {
-  // a
+  // 创建libio库共用的metatable
   createmeta(L);
-  int n = lua_gettop(L);
   
-  /* create (private) environment (with fields IO_INPUT, IO_OUTPUT, __close) 
-  **
-  ** 替换当前callInfo中的环境变量（gbl.tbl->newfenv函数构造出来的tbl）
-  */
-  // b
+  // 构建一张表tbl1,用tbl1更新cur->func->c.env,弹掉tbl1
   newfenv(L, io_fclose);
-  n = lua_gettop(L);
-
-  // c
   lua_replace(L, LUA_ENVIRONINDEX);
-  n = lua_gettop(L);
-  /* d open library */
-  luaL_register(L, LUA_IOLIBNAME, iolib);
-  n = lua_gettop(L);
-  /* e create (and set) default files */
-  newfenv(L, io_noclose);  /* close function for default files */
-  n = lua_gettop(L);
-  /* f */
-  createstdfile(L, stdin, IO_INPUT, "stdin");
   
-  n = lua_gettop(L);
+  /* 在全局表中新建libio库的子域(表tbl2)并填充iolib到该表tbl2,tbl2保留在stack上 */
+  luaL_register(L, LUA_IOLIBNAME, iolib);
+  
+  /* e create (and set) default files tbl3 */
+  newfenv(L, io_noclose);  /* close function for default files */
+  createstdfile(L, stdin, IO_INPUT, "stdin");
   createstdfile(L, stdout, IO_OUTPUT, "stdout");
   createstdfile(L, stderr, 0, "stderr");
-  lua_pop(L, 1);  /* pop environment for default files */
+  lua_pop(L, 1);  /* pop environment for default files tbl3 */
+  
   lua_getfield(L, -1, "popen");
   newfenv(L, io_pclose);  /* create environment for 'popen' */
   lua_setfenv(L, -2);  /* set fenv for 'popen' */
   lua_pop(L, 1);  /* pop 'popen' */
+  
   return 1;
 }
 
