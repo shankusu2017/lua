@@ -92,7 +92,7 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 
 #define LUA_TNIL		0
 #define LUA_TBOOLEAN		1
-#define LUA_TLIGHTUSERDATA	2	/* lua不管理其声明周期(gc) */
+#define LUA_TLIGHTUSERDATA	2	/* lua不管理其生命周期(gc) */
 #define LUA_TNUMBER		3
 
 /* gc管理生命周期 */

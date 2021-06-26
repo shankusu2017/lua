@@ -34,11 +34,11 @@ struct lua_longjmp;  /* defined in ldo.c */
 #define BASIC_STACK_SIZE        (2*LUA_MINSTACK)
 
 
-/* 闭散列，哈希桶算法          (https://blog.csdn.net/Boring_Wednesday/article/details/80316884) */
+/* 闭散列，哈希桶算法          ( https://blog.csdn.net/Boring_Wednesday/article/details/80316884) */
 typedef struct stringtable {
   GCObject **hash;
-  lu_int32 nuse;  /* number of elements 表中元素个数 */
-  int size;	/* 哈希桶的高度 */
+  lu_int32 nuse;  	/* number of elements 表中元素总数 */
+  int size;			/* 哈希桶的高度 */
 } stringtable;
 
 
@@ -51,13 +51,13 @@ typedef struct CallInfo {
   
   /* base for this function：
   **
-  ** 下面的注释不保证正确，如果和实际代码有出入，请已实际代码为准(自己调试观察下就能搞明白)
-  ** ForC:本次函数调用中,存放第一个参数的slot,top-base=已压入的调用参数个数,被调用的函数由fun指针指向 
+  ** 
+  ** ForC:本次函数调用中,存放第一个参数的slot,top-base=已压入的调用参数个数,被调用的函数由fun指针指向
   
-  ** ForLua:第一个给定参数的位置
+  ** ForLua:第一个固定参数的位置
   ** 如果lua函数的参数个数固定，普通含义(同C)
-  ** 如果lua函数的参数不固定，func-->(top1-(base=top1))之间的传入的参数(本函数被调用时实际传入的所有参数)在调用本函数之前其中的部分被复制到了base-->top2
-  **     中，原空间填nil,这样base->top2的空间就是新的固定参数的位置，base-fun又可以计算本变参函数被调用时实际接收了多少参数,base又满足统一的含义(指向了第一个固定参数的位置)
+  ** 如果lua函数的参数不固定，func-->(top1(base))之间的传入的参数(本函数被调用时实际传入的所有参数)在调用本函数之前其中的部分(用于填充被调函数的固定形参)被复制到了base-->top2
+  **     中，原空间回填nil,这样base->top2的空间就是新的固定参数的位置，fun->base可以计算本变参函数被调用时实际接收了多少参数,base又满足统一的含义(指向了第一个固定参数的位置)
   **     只是func->base之间有了空隙而已(因为空出来的slot都被拿去填补了lua函数形参中的固定参数去了)，故而上面说的被复制的个数等于函数形参的个数
   **     eg:定义：funcA(a,b,c, ...)
   **        实际调用：funcA(1,2,3,4,5)
@@ -65,9 +65,16 @@ typedef struct CallInfo {
   */
   StkId base;  
   StkId func;  /* function index in the stack,本次函数调用的fun在frame中的位置 */
-  const Instruction *savedpc;	/* next code,本次调用被打断时存档,调用恢复时拿出来用eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
-  int nresults;  /* expected number of results from this function -1:要全部返回值, 0:不要返回值，1：要一个返回值 */
-  int tailcalls;  /* number of tail calls lost under this entry */
+  
+  const Instruction *savedpc;	/* next code,本次母调用被打断时存档,待子调用恢复时拿出来用eg:funA调用funB,开始执行funB时存下funA的next code,待funB结束后，继续funA的next code执行 */
+
+  /* expected number of results from this function 
+  ** -1: 期待全部参数, 
+  **  0: 期待0个参数，
+  **  1：期待1个参数 
+  */
+  int nresults;  	
+  int tailcalls;  	/* number of tail calls lost under this entry */
 } CallInfo;
 
 
@@ -82,31 +89,41 @@ typedef struct CallInfo {
 ** `global state', shared by all threads of this state(被本state所属的threads共享,言外之意，还可以有第N+1个state,其是一个完全独立的lua'state(包含独享的global_state和其独享的threads))
 */
 typedef struct global_State {
-  stringtable strt;  /* hash table for strings */
-  lua_Alloc frealloc;  /* function to reallocate memory */
-  void *ud;         /* auxiliary data to `frealloc' */
-  lu_byte currentwhite;	/* 原子扫描完毕时，切换此值 */
-  lu_byte gcstate;  /* state of garbage collector */
-  int sweepstrgc;  /* position of sweep in `strt' */
-  GCObject *rootgc;  /* list of all collectable objects */
-  GCObject **sweepgc;  /* position of sweep in `rootgc' */
-  GCObject *gray;  /* list of gray objects */
+  lua_Alloc frealloc;  	/* function to reallocate memory */
+  void *ud;         	/* auxiliary data to `frealloc' */
+
+  stringtable strt;  	/* hash table for strings */
+  
+  lu_byte currentwhite;	/* atomic() 原子扫描完毕时，切换此值 */
+  lu_byte gcstate;  	/* state of garbage collector */
+  
+  int sweepstrgc;  		/* position of sweep in `strt' */
+  GCObject *rootgc;  	/* list of all collectable objects */
+  GCObject **sweepgc;  	/* position of sweep in `rootgc' */
+  GCObject *gray;  		/* list of gray objects */
   GCObject *grayagain;  /* list of objects to be traversed atomically */
-  GCObject *weak;  /* list of weak tables (to be cleared)，propagate阶段处理的weak-table被放入此链表(gc过程中weak-attribute还可能发生变化的)，等待最后atomic处理， */
-  GCObject *tmudata;  /* last element of list of userdata to be GC */
-  Mbuffer buff;  /* temporary buffer for string concatentation(级联) */
+  GCObject *weak;  		/* list of weak tables (to be cleared)，propagate阶段处理的weak-table被放入此链表(gc过程中weak-attribute还可能发生变化的)，等待最后atomic处理， */
+  GCObject *tmudata;  	/* last element of list of userdata to be GC */
+  
   lu_mem GCthreshold;
-  lu_mem totalbytes;  /* number of bytes currently allocated */
-  lu_mem estimate;  /* an estimate(估计) of number of bytes actually in use */
-  lu_mem gcdept;  /* how much GC is `behind schedule' */
-  int gcpause;  /* size of pause between successive GCs */
-  int gcstepmul;  /* GC `granularity(粒度)' */
+  lu_mem totalbytes;  	/* number of bytes currently allocated */
+  lu_mem estimate;  	/* an estimate(估计) of number of bytes actually in use */
+  lu_mem gcdept; 		/* how much GC is `behind schedule' */
+  int gcpause;  		/* size of pause between successive GCs */
+  int gcstepmul;  		/* GC `granularity(粒度)' */
+  
   lua_CFunction panic;  /* to be called in unprotected errors */
+  
   TValue l_registry;
+  
   struct lua_State *mainthread;
+  
   UpVal uvhead;  /* head of double-linked list of all open upvalues */
-  struct Table *mt[NUM_TAGS];  /* metatables for basic types */
-  TString *tmname[TM_N];  /* array with tag-method names */
+  
+  struct Table 	*mt[NUM_TAGS];  /* metatables for basic types */
+  TString 		*tmname[TM_N];  /* array with tag-method names */
+  
+  Mbuffer buff;  /* temporary buffer for string concatentation(级联) */
 } global_State;
 
 
@@ -117,29 +134,31 @@ struct lua_State {
   CommonHeader;
   lu_byte status;
 
-   /* 对于C.frame:first free slot in the stack, 当前指向的addr是可用的！！！
+  global_State *l_G;
+
+   /* 
+   ** 对于C.frame:first free slot in the stack, 当前指向的addr是可用的！！！
    ** 对于Lua.frame 一般情况下L->top=L->ci->top(lua编译阶段即可知道Lua函数栈需要的最大值)
-   **     在执行有关动态参数的指令时，用于指示最后一个参数的位置？用于计算参数的具体数量
+   **     在执行有关动态参数的指令时，用于指示最后一个参数的位置,用于计算参数的具体数量
    */
   StkId top; 
-  StkId base;  /* base of current function, 当前调用frame中，第一个形参的addr，具体解释看CallInfo */
-  /* 没有额外定义func，这点有印象就好 */
-  
-  global_State *l_G;
-  CallInfo *ci;  /* call info for current function */
-  const Instruction *savedpc;  /* `savedpc' of current function */
+  StkId base;  					/* base of current function, 当前调用frame中，第一个形参的addr，具体解释看CallInfo */
+  								/* 此处没定义func，func定义在ci(CallInfo)中 */
+  CallInfo *ci;  				/* call info for current function */
+  const Instruction *savedpc;  	/* `savedpc' of current function */
 
-  /* stacksize =(stack_last - stack) + (1 + EXTRA_STACK) 
-   ** stack_last到真实的stack->mem.top之间还有一层缓冲区
+  /* 
+  ** stacksize =(stack_last - stack) + (1 + EXTRA_STACK) 
+  ** stack_last到真实的stack->mem.top之间还有一层缓冲区
   */
-  StkId stack_last;  /* last free slot in the stack */
-  StkId stack;  /* stack base */
-  int stacksize;
+  StkId stack_last;  		/* last free slot in the stack */
+  StkId stack;  			/* stack base */
+  int 	stacksize;
 
-  CallInfo *base_ci;  /* array of CallInfo's */
-  CallInfo *end_ci;  /* points after end of ci array*/
-  int size_ci;  /* size of array `base_ci' */
-  unsigned short nCcalls;  /* number of nested C calls */
+  CallInfo 	*base_ci;  		/* array of CallInfo's */
+  CallInfo 	*end_ci;  		/* points after end of ci array*/
+  int 		size_ci;  		/* size of array `base_ci' */
+  unsigned short nCcalls;  	/* number of nested C calls */
   /* nested C calls when resuming coroutine
   **（在进入resume之前嵌套的C调用，以便判断从Cyiled返回时resume中是否夹杂了新的C调用） ???
   */
@@ -149,14 +168,17 @@ struct lua_State {
   lu_byte allowhook;
   int basehookcount;	/* 参考debug.sethook,虚拟机执行N个pc后调用指定的钩子函数 */
   int hookcount;		/* 当前还需要执行N个pc才能触发上面提到的钩子函数 */
-  lua_Hook hook;	/*  调试用的hook函数句柄, 参考 debug.sethook           */
+  lua_Hook hook;		/*  调试用的hook函数句柄, 参考 debug.sethook           */
   
-  TValue l_gt;  /* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承环境变量 */
-  TValue env;  /* temporary place for environments */
+  TValue l_gt;  		/* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承环境变量 */
+  
+  TValue env;  			/* temporary place for environments */
   GCObject *openupval;  /* list of open upvalues in this stack */
+  
   GCObject *gclist;
+  
   struct lua_longjmp *errorJmp;  /* current error recover point */
-  ptrdiff_t errfunc;  /* current error handling function (stack index) */
+  ptrdiff_t errfunc;  			 /* current error handling function (stack index) */
 };
 
 

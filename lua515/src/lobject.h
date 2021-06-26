@@ -27,7 +27,7 @@
 */
 #define LUA_TPROTO	(LAST_TAG+1)
 #define LUA_TUPVAL	(LAST_TAG+2)
-#define LUA_TDEADKEY	(LAST_TAG+3)	/* 表中nil的val对应的key则为DEADKEY */
+#define LUA_TDEADKEY	(LAST_TAG+3)	/* 表中val为nil的key则为DEADKEY */
 
 
 /*
@@ -57,10 +57,10 @@ typedef struct GCheader {
 ** Union of all Lua values
 */
 typedef union {
-  GCObject *gc;
-  void *p;	// light userdata 需C自己管理生命周期
-  lua_Number n;	// int,double 在double值为64bit的machine上，n比较耗MEM，但没有更妥善的方法来平衡各种因素
-  int b;	/* bool */
+  GCObject 	 *gc;
+  void 		 *p;	// light userdata 需C自己管理生命周期
+  lua_Number n;		// double 可以准确的表示一定范围内(很大)的int
+  int 		 b;		/* bool */
 } Value;
 
 
@@ -79,31 +79,33 @@ typedef struct lua_TValue {
 * o:是TValue而不是Object类型,这里不是采用CommonHead中的tt来判断类型
 */
 #define ttisnil(o)	(ttype(o) == LUA_TNIL)
+#define ttisboolean(o)	(ttype(o) == LUA_TBOOLEAN)
 #define ttisnumber(o)	(ttype(o) == LUA_TNUMBER)
+#define ttislightuserdata(o)	(ttype(o) == LUA_TLIGHTUSERDATA)
 #define ttisstring(o)	(ttype(o) == LUA_TSTRING)
 #define ttistable(o)	(ttype(o) == LUA_TTABLE)
 #define ttisfunction(o)	(ttype(o) == LUA_TFUNCTION)
-#define ttisboolean(o)	(ttype(o) == LUA_TBOOLEAN)
 #define ttisuserdata(o)	(ttype(o) == LUA_TUSERDATA)
 #define ttisthread(o)	(ttype(o) == LUA_TTHREAD)
-#define ttislightuserdata(o)	(ttype(o) == LUA_TLIGHTUSERDATA)
 
-/* Macros to access values 
+/* Macros to access values */
+/*
 ** 这里的o是TValues类型，而不是Object
 **
-** !!!!注意这里返回的类型，非gc类型直接返回数值，gc类型，返回的是对象的地址(指针)
+** !!!!注意这里返回的类型，非gc类型直接返回数值，gc类型，返回对象地址
 */
 #define ttype(o)	((o)->tt)
 #define gcvalue(o)	check_exp(iscollectable(o), (o)->value.gc)
 #define pvalue(o)	check_exp(ttislightuserdata(o), (o)->value.p)
+#define bvalue(o)	check_exp(ttisboolean(o), (o)->value.b)
 #define nvalue(o)	check_exp(ttisnumber(o), (o)->value.n)
+
 #define rawtsvalue(o)	check_exp(ttisstring(o), &(o)->value.gc->ts)
 #define tsvalue(o)	(&rawtsvalue(o)->tsv)
 #define rawuvalue(o)	check_exp(ttisuserdata(o), &(o)->value.gc->u)
 #define uvalue(o)	(&rawuvalue(o)->uv)
 #define clvalue(o)	check_exp(ttisfunction(o), &(o)->value.gc->cl)
 #define hvalue(o)	check_exp(ttistable(o), &(o)->value.gc->h)
-#define bvalue(o)	check_exp(ttisboolean(o), (o)->value.b)
 #define thvalue(o)	check_exp(ttisthread(o), &(o)->value.gc->th)
 
 #define l_isfalse(o)	(ttisnil(o) || (ttisboolean(o) && bvalue(o) == 0))
@@ -115,8 +117,9 @@ typedef struct lua_TValue {
 #define checkconsistency(obj) \
   lua_assert(!iscollectable(obj) || (ttype(obj) == (obj)->value.gc->gch.tt))
 /* 
-** 若为gc类型则检测类型一致性 value.type要和gc.tt一致，且obj(src)可达
-** 用在obj=src语句之后,若引用了一个dead的src，这就是逻辑错误了，所以必须坚持src的可达性
+** obj若为gc类型则必须可达
+** value.tt和gc.gch.tt需一致，obj若不可达，则不可能被赋值
+** 
 */
 #define checkliveness(g,obj) \
   lua_assert(!iscollectable(obj) || \
@@ -207,19 +210,17 @@ typedef TValue *StkId;  /* index to stack elements */
 ** String headers for string table
 */
 typedef union TString {
-  L_Umaxalign dummy;  /* ensures maximum alignment for strings */
+  L_Umaxalign dummy;  	/* ensures maximum alignment for strings */
   struct {
     CommonHeader;
     lu_byte reserved;	/* 是否为保留字(eg:语言关键字) ？ */
     unsigned int hash;  /* hash值 */
-    size_t len;	/* 不包含lua额外申请的放在数组最后面的\0 */
+    size_t len;			/* 不包含lua额外申请的放在数组最后面的\0 */
   } tsv;
 } TString;
 
-
 #define getstr(ts)	cast(const char *, (ts) + 1)
 #define svalue(o)       getstr(rawtsvalue(o))
-
 
 
 typedef union Udata {
@@ -228,22 +229,20 @@ typedef union Udata {
     CommonHeader;
     struct Table *metatable;
     struct Table *env;
-    size_t len;	/* 负载(load)数据长度 */
+    size_t len;					/* 负载(load)数据长度 */
   } uv;
 } Udata;
 
 
-
-
 /*
 ** Function Prototypes
-** 下面的域的排序经过了整理（相关的放在一起），原始代码则是类型相同的放一起(节省MEM考虑吧)
+** 下面域的排序经过了整理（相关的放在一起），原始代码则是类型相同的放一起(节省MEM考虑)
 */
 typedef struct Proto {
   CommonHeader;
   
   TString  *source;		/* 所在源文件的带路径的文件名 */
-  int linedefined;		/* 函数起始/结束所在的文件行数 */
+  int linedefined;		/* 函数起始/结束所在文件行 */
   int lastlinedefined;
   
   Instruction *code;	/* 指向存放指令数组的指针 */
@@ -266,15 +265,13 @@ typedef struct Proto {
   int sizeupvalues;		/* 整个数组的大小(数组内部可能还有部分slot未被使用) */
   lu_byte nups;  		/* number of upvalues:实际使用的数量 */
   
-  
   GCObject *gclist;
   
-  lu_byte numparams;	/* 函数原型中定长参数个数 funA(a,b,...)->2, funB(...)->0, funC(a)->1, 如果包含隐式的self参数，那也算一个形参            */
+  lu_byte numparams;	/* 函数原型中定长参数个数 fun(...)->0,funC(a)->1,funA(a,b,...)->2, 如果包含隐式的self参数，那也算一个形参            */
   lu_byte is_vararg;	/* 不定长函数funB(a,...)但凡定义中有...的则是不定长参数，反之则不是 */
-  
   /* 编译过程计算得到：本proto需用到的local'var的数量的最大值
   ** (从第一个型参开始计算(不包含不定参数...因为哪个没法知道确切的数量) 
-  ** 实际调用时传给不定参数...的实参在L->base---->L->func之间,数量在OP_VARARG指令中已给出计算公式
+  ** 实际调用时传给不定参数...的实参在L->func---->L->base之间,数量在OP_VARARG指令中已给出计算公式
   */
   lu_byte maxstacksize;	
 } Proto;
@@ -287,9 +284,9 @@ typedef struct Proto {
 
 
 typedef struct LocVar {
-  TString *varname;	/* 变量名 */
-  int startpc;  /* first point where variable is active */
-  int endpc;    /* first point where variable is dead */
+  TString 	*varname;	/* 变量名 */
+  int 		startpc;  	/* first point where variable is active */
+  int 		endpc;    	/* first point where variable is dead */
 } LocVar;
 
 
@@ -300,13 +297,13 @@ typedef struct LocVar {
 
 typedef struct UpVal {
   CommonHeader;
-  TValue *v;  /* points to stack or to its own value */
+  TValue *v;  		/* points to stack or to its own value */
   union {
-    TValue value;  /* the value (when closed) */
-    struct {  /* double linked list (when open) */
+    TValue value;  	/* the value (when closed) */
+    struct {  		/* double linked list (when open) */
       struct UpVal *prev;
       struct UpVal *next;
-    } l;
+    } l;			/* l:list */
   } u;
 } UpVal;
 
@@ -324,14 +321,14 @@ typedef struct UpVal {
 typedef struct CClosure {
   ClosureHeader;
   lua_CFunction f;
-  TValue upvalue[1];
+  TValue 		upvalue[1];
 } CClosure;
 
 
 typedef struct LClosure {
   ClosureHeader;
-  struct Proto *p;
-  UpVal *upvals[1];
+  struct Proto 	*p;
+  UpVal 		*upvals[1];
 } LClosure;
 
 
@@ -351,29 +348,29 @@ typedef union Closure {
 
 typedef union TKey {
   struct {
-    TValuefields;	/* 这里不能简单的用TValue替代，因为TValue已经是最顶层的Value表现形式了。不能再和XXX混合形成更高层次的Value */
+    TValuefields;		/* 这里不能简单的用TValue替代，因为TValue已经是最顶层的Value表现形式了。不能再和XXX混合形成更高层次的Value */
     struct Node *next;  /* for chaining */
   } nk;
-  TValue tvk;	/* tvk域起到了上面nk.val的作用,方便某些情况下的代码编写，算是理想和现实的折中吧 */
+  TValue tvk;			/* tvk域起到了上面nk.val的作用,方便某些情况下的代码编写，算是理想和现实的折中吧 */
 } TKey;
 
 
 typedef struct Node {
   TValue i_val;
-  TKey i_key;
+  TKey 	 i_key;
 } Node;
 
 
 typedef struct Table {
   CommonHeader;
-  lu_byte flags;  /* 1<<p means tagmethod(p) is not present */ 
-  lu_byte lsizenode;  /* log2 of size of `node' array */
-  struct Table *metatable;
-  TValue *array;  /* array part */
-  Node *node;
-  Node *lastfree;  /* any free position is before this position */
-  GCObject *gclist;	/* gc过程中用到，比如当前自己在gray链表中，则指向下一个gray'obj */
-  int sizearray;  /* size of `array' array */
+  struct Table 	*metatable;
+  lu_byte 		flags;  		/* 1<<p means tagmethod(p) is not present */ 
+  Node 			*node;
+  lu_byte 		lsizenode;  	/* log2 of size of `node' array */
+  Node 			*lastfree; 		/* any free position is before this position */
+  TValue 		*array;  		/* array part */
+  int 			sizearray;  	/* size of `array' array */
+  GCObject 		*gclist;		/* gc过程中用到，比如当前自己在gray链表中，则指向下一个gray'obj */
 } Table;
 
 
