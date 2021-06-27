@@ -722,9 +722,11 @@ void luaC_barrierback (lua_State *L, Table *t) {
 
 void luaC_link (lua_State *L, GCObject *o, lu_byte tt) {
   global_State *g = G(L);
+  
   o->gch.next = g->rootgc;
   g->rootgc = o;
-  o->gch.marked = luaC_white(g);
+  
+  o->gch.marked = luaC_white(g);	/* 挂上来时的marked都被标记为luaC_white */
   o->gch.tt = tt;
 }
 

@@ -120,19 +120,23 @@ static void close_state (lua_State *L) {
 /* L1->env尚未赋值，也未初始化，是一个随机值 */
 lua_State *luaE_newthread (lua_State *L) {
   lua_State *L1 = tostate(luaM_malloc(L, state_size(lua_State)));
+  
+  /* 挂到rootgc链表，初始化marked */
   luaC_link(L, obj2gco(L1), LUA_TTHREAD);
+  
   preinit_state(L1, G(L));
   stack_init(L1, L);  /* init stack */
   
   setobj2n(L, gt(L1), gt(L));  /* share table of globals */
-  
+
+  /* 继承debug设置 */
   L1->hookmask = L->hookmask;
   L1->basehookcount = L->basehookcount;
   L1->hook = L->hook;
   resethookcount(L1);
   
-  /* 这个判断是必要的，因为新生的thread尚未有任何对象引用它，可能被GC？
-  ** 不太明白这里iswhite的判断条件
+  /* 
+  ** 暂无任何对象引用刚被构建出来的L1,所以L1只能是white，其它颜色则是非法的
   */
   lua_assert(iswhite(obj2gco(L1)));
   
