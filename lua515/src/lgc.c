@@ -445,6 +445,7 @@ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
   while ((curr = *p) != NULL && count-- > 0) {
     if (curr->gch.tt == LUA_TTHREAD)  /* sweep open upvalues of each thread */
       sweepwholelist(L, &gco2th(curr)->openupval);
+	
 	/* gch.marked ^ WHITEBITS ->bit[7,2]不变，bit[1,0]翻转 */
     if ((curr->gch.marked ^ WHITEBITS) & deadmask) {  /* not dead? */
       lua_assert(!isdead(g, curr) || testbit(curr->gch.marked, FIXEDBIT));

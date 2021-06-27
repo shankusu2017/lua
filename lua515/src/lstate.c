@@ -38,7 +38,7 @@ typedef struct LG {
 } LG;
   
 
-/* KEYCODE 重点函数必须彻底弄懂 */
+/* 初始化调用栈，数据栈 */
 static void stack_init (lua_State *L1, lua_State *L) {
   /* initialize CallInfo array */
   L1->base_ci = luaM_newvector(L, BASIC_CI_SIZE, CallInfo);
@@ -54,12 +54,12 @@ static void stack_init (lua_State *L1, lua_State *L) {
   
   /* initialize first ci */
   L1->ci->func = L1->top;
-  setnilvalue(L1->top++);  /* 当前“没有”调用函数,所以这里为nil `function' entry for this `ci' */
+  setnilvalue(L1->top++);  /* 当前被调函数为nil `function' entry for this `ci' */
   L1->base = L1->ci->base = L1->top;
   L1->ci->top = L1->top + LUA_MINSTACK;	/* 给调用栈预留出 LUA_MINSTACK 个slot空间 */
 }
 
-
+/* 释放调用栈，数据栈 */
 static void freestack (lua_State *L, lua_State *L1) {
   luaM_freearray(L, L1->base_ci, L1->size_ci, CallInfo);
   luaM_freearray(L, L1->stack, L1->stacksize, TValue);
@@ -181,6 +181,7 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   setnilvalue(registry(L));
   luaZ_initbuffer(L, &g->buff);
   g->panic = NULL;
+  
   g->gcstate = GCSpause;
   g->rootgc = obj2gco(L);	/* 这里rootgc->mainthread,后续讲gc时会再次提到 */
   g->sweepstrgc = 0;
@@ -189,6 +190,7 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->grayagain = NULL;
   g->weak = NULL;
   g->tmudata = NULL;
+  
   g->totalbytes = sizeof(LG);
   g->gcpause = LUAI_GCPAUSE;
   g->gcstepmul = LUAI_GCMUL;
@@ -211,7 +213,7 @@ static void callallgcTM (lua_State *L, void *ud) {
 }
 
 
-LUA_API void lua_close (lua_State *L) {
+LUA_API void lua_close (lua_State *L) {  
   L = G(L)->mainthread;  /* only the main thread can be closed */
   lua_lock(L);
   luaF_close(L, L->stack);  /* close all upvalues for this thread */

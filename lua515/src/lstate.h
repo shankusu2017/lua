@@ -105,12 +105,12 @@ typedef struct global_State {
   int 		sweepstrgc; /* position of sweep in `strt' */
   GCObject **sweepgc;  	/* position of sweep in `rootgc' */
   
-  lu_mem GCthreshold;
   lu_mem totalbytes;  	/* number of bytes currently allocated */
+  lu_mem GCthreshold;	/* 临界点（开始扫描的临界点？） */
   lu_mem estimate;  	/* an estimate(估计) of number of bytes actually in use */
   lu_mem gcdept; 		/* how much GC is `behind schedule' */
   int gcpause;  		/* size of pause between successive GCs */
-  int gcstepmul;  		/* GC `granularity(粒度)' */
+  int gcstepmul;  		/* GC `granularity/步伐速度' */
   
   lua_CFunction panic;  /* to be called in unprotected errors */
   
