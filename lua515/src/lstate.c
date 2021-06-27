@@ -163,7 +163,9 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g = &((LG *)L)->g;
   L->next = NULL;
   L->tt = LUA_TTHREAD;
+  
   g->currentwhite = bit2mask(WHITE0BIT, FIXEDBIT);
+  
   L->marked = luaC_white(g);
   set2bits(L->marked, FIXEDBIT, SFIXEDBIT);
   preinit_state(L, g);
@@ -219,6 +221,7 @@ LUA_API void lua_close (lua_State *L) {
   luaF_close(L, L->stack);  /* close all upvalues for this thread */
   luaC_separateudata(L, 1);  /* separate udata that have GC metamethods */
   L->errfunc = 0;  /* no error function during GC metamethods */
+  
   do {  /* repeat until no more errors */
     L->ci = L->base_ci;
     L->base = L->top = L->ci->base;
@@ -226,6 +229,7 @@ LUA_API void lua_close (lua_State *L) {
   } while (luaD_rawrunprotected(L, callallgcTM, NULL) != 0);
   lua_assert(G(L)->tmudata == NULL);
   luai_userstateclose(L);
+  
   close_state(L);
 }
 

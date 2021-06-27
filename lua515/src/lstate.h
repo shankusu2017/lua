@@ -94,8 +94,8 @@ typedef struct global_State {
 
   stringtable strt;  	/* hash table for strings */
   
-  lu_byte currentwhite;	/* atomic() 原子扫描完毕时，切换此值 */
   lu_byte gcstate;  	/* state of garbage collector */
+  lu_byte currentwhite;	/* atomic() 原子扫描完毕时，切换此值 */
   
   GCObject *rootgc;  	/* list of all collectable objects */
   GCObject *gray;  		/* list of gray objects */
@@ -132,11 +132,13 @@ typedef struct global_State {
 */
 struct lua_State {
   CommonHeader;
+  
+  GCObject *gclist;
+  
+  global_State *l_G;
 
   /* 处理机状态 */
   lu_byte status;
-
-  global_State *l_G;
 
    /* 
    ** 对于C.frame:first free slot in the stack, 当前指向的addr是可用的！！！
@@ -146,32 +148,30 @@ struct lua_State {
   StkId top; 
   StkId base;  					/* base of current function, 当前调用frame中，第一个形参的addr，具体解释看CallInfo */
   								/* 此处没定义func，func定义在ci(CallInfo)中 */
-  CallInfo *ci;  				/* call info for current function */
   const Instruction *savedpc;  	/* `savedpc' of current function */
 
   /* 
   ** stacksize =(stack_last - stack) + (1 + EXTRA_STACK) 
   ** stack_last到真实的stack->mem.top之间还有一层缓冲区
   */
-  StkId stack_last;  		/* last free slot in the stack */
-  StkId stack;  			/* stack base */
+  StkId stack_last;  			/* last free slot in the stack */
+  StkId stack;  				/* stack base */
   int 	stacksize;
-
-  CallInfo 	*base_ci;  		/* array of CallInfo's */
-  CallInfo 	*end_ci;  		/* points after end of ci array*/
-  int 		size_ci;  		/* size of array `base_ci' */
-  unsigned short nCcalls;  	/* number of nested C calls */
+  
+  CallInfo 	*ci;  				/* call info for current function */
+  CallInfo 	*base_ci;  			/* array of CallInfo's */
+  CallInfo 	*end_ci;  			/* points after end of ci array*/
+  int 		size_ci;  			/* size of array `base_ci' */
+  unsigned short nCcalls;  		/* number of nested C calls */
   /* nested C calls when resuming coroutine
   **（在进入resume之前嵌套的C调用，以便判断从Cyiled返回时resume中是否夹杂了新的C调用） ???
   */
   unsigned short baseCcalls;  
     
-  TValue l_gt;  		/* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承环境变量 */
+  TValue l_gt;  				/* table of globals: 每次生成一个closure时，env从此继承而不是从上层函数继承环境变量 */
   
-  TValue env;  			/* temporary place for environments */
-  GCObject *openupval;  /* list of open upvalues in this stack */
-  
-  GCObject *gclist;
+  TValue env;  					/* temporary place for environments */
+  GCObject *openupval;  		/* list of open upvalues in this stack */
   
   struct lua_longjmp *errorJmp;  /* current error recover point */
   ptrdiff_t errfunc;  			 /* current error handling function (stack index) */

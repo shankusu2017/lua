@@ -77,9 +77,9 @@ static void removeentry (Node *n) {
     setttype(gkey(n), LUA_TDEADKEY);  /* dead key; remove it */
 }
 
-/* 将普通的gc数据链接到gc_gray链表上,userData,upVal有特定的逻辑，详情看代码，
+/* 将普通的gclist指针(非链接在root_gc的next指针)挂到gc_gray链表上,userData,upVal有特定的逻辑，详情看代码，
 ** 本函数没有对对象的所引用对象进行递归调用reallymarkobject是希望能快递结束本流程(pause->GCSpropagate) 以便处理完root_list
-** 对userData的mt和env则进行递归处理，因为除此之外，没有其它地方被引用了？
+** 对userData的mt和env则进行递归处理
 */
 static void reallymarkobject (global_State *g, GCObject *o) {
   /* 是任何一种白色，且是当前白色 */
@@ -117,7 +117,7 @@ static void reallymarkobject (global_State *g, GCObject *o) {
     }
     case LUA_TFUNCTION: {
       gco2cl(o)->c.gclist = g->gray;
-      g->gray = o;
+      g->gray = o;gclist
       break;
     }
     case LUA_TTABLE: {
@@ -159,15 +159,22 @@ size_t luaC_separateudata (lua_State *L, int all) {
   GCObject **p = &g->mainthread->next;	/* udata是挂在mainthread后面的，这里将其提取出来 */
   GCObject *curr;
   while ((curr = *p) != NULL) {
-    if (!(iswhite(curr) || all) || isfinalized(gco2u(curr)))	// 本轮不需要回收，或者是上一轮需要回收且有tm_gc且运行了其方法，但本体留到本轮回收的udata */
+  	/* 
+  	** 本轮不需要回收，
+  	** 或者是上一轮需要回收且有tm_gc且运行了其方法，但本体留到本轮回收的udata 
+  	*/
+    if (!(iswhite(curr) || all) || isfinalized(gco2u(curr)))	
       p = &curr->gch.next;  /* don't bother with them */
-    else if (fasttm(L, gco2u(curr)->metatable, TM_GC) == NULL) {	/* 本轮需要回收，但没有tm_gc：直接标记为需回收 */
+    else if (fasttm(L, gco2u(curr)->metatable, TM_GC) == NULL) {	
+	  /* 
+	  ** 本轮需要回收，但没有tm_gc：直接标记为需回收 
+	   */
       markfinalized(gco2u(curr));  /* don't need finalization */
       p = &curr->gch.next;
     }
     else {  /* must call its gc method */
       deadmem += sizeudata(gco2u(curr));
-      markfinalized(gco2u(curr));	/* 需回收，本轮先运行tm_gc，本地的回收放到下一轮gc中被回收 */
+      markfinalized(gco2u(curr));	/* 需回收，本轮先运行tm_gc，本体的回收放到下一轮gc中被回收 */
       *p = curr->gch.next;
       /* link `curr' at the end of `tmudata' list */
       if (g->tmudata == NULL)  /* list is empty? */
@@ -515,17 +522,20 @@ void luaC_callGCTM (lua_State *L) {
     GCTM(L);
 }
 
-
+/* 除了SFIXEBBIT外，回收所有其它的GCObject */
 void luaC_freeall (lua_State *L) {
   global_State *g = G(L);
   int i;
+
+  /* 抛弃了初始化时的 FIXEDBIT 标志位 */
   g->currentwhite = WHITEBITS | bitmask(SFIXEDBIT);  /* mask to collect all elements */
+  
   sweepwholelist(L, &g->rootgc);
   for (i = 0; i < g->strt.size; i++)  /* free all string lists */
     sweepwholelist(L, &g->strt.hash[i]);
 }
 
-
+/* 扫描共用的mt */
 static void markmt (global_State *g) {
   int i;
   for (i=0; i<NUM_TAGS; i++)
@@ -539,11 +549,15 @@ static void markroot (lua_State *L) {
   g->gray = NULL;
   g->grayagain = NULL;
   g->weak = NULL;
+  /* tmudata没有置空，有个印象 */
+
+  /* GC扫描的起始点 */
   markobject(g, g->mainthread);	/* 将其链接到gray上*/
   /* make global table be traversed before main stack */
   markvalue(g, gt(g->mainthread));
   markvalue(g, registry(L));
   markmt(g);
+  
   g->gcstate = GCSpropagate;	/* 进入传播阶段 */
 }
 
@@ -576,13 +590,17 @@ static void atomic (lua_State *L) {
   g->gray = g->grayagain;
   g->grayagain = NULL;
   propagateall(g);
+
+  /* 两行函数的调用有前后顺序 */
   udsize = luaC_separateudata(L, 0);  /* separate(分离) userdata to be finalized */
   marktmu(g);  /* mark `preserved' userdata */
+  
   udsize += propagateall(g);  /* remark, to propagate `preserveness' */
   cleartable(g->weak);  /* remove collected objects from weak tables */
   
-  /* flip current white */
-  g->currentwhite = cast_byte(otherwhite(g));	/* 切换currentwhite */
+  /* flip current white 保留[7,2]，翻转[1,0]*/
+  g->currentwhite = cast_byte(otherwhite(g));
+  
   g->sweepstrgc = 0;
   g->sweepgc = &g->rootgc;
   g->gcstate = GCSsweepstring;
