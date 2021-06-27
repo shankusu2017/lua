@@ -97,13 +97,13 @@ typedef struct global_State {
   lu_byte currentwhite;	/* atomic() 原子扫描完毕时，切换此值 */
   lu_byte gcstate;  	/* state of garbage collector */
   
-  int sweepstrgc;  		/* position of sweep in `strt' */
   GCObject *rootgc;  	/* list of all collectable objects */
-  GCObject **sweepgc;  	/* position of sweep in `rootgc' */
   GCObject *gray;  		/* list of gray objects */
   GCObject *grayagain;  /* list of objects to be traversed atomically */
   GCObject *weak;  		/* list of weak tables (to be cleared)，propagate阶段处理的weak-table被放入此链表(gc过程中weak-attribute还可能发生变化的)，等待最后atomic处理， */
   GCObject *tmudata;  	/* last element of list of userdata to be GC */
+  int 		sweepstrgc; /* position of sweep in `strt' */
+  GCObject **sweepgc;  	/* position of sweep in `rootgc' */
   
   lu_mem GCthreshold;
   lu_mem totalbytes;  	/* number of bytes currently allocated */
