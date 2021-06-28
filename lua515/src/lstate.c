@@ -221,7 +221,10 @@ LUA_API void lua_close (lua_State *L) {
   luaF_close(L, L->stack);  /* close all upvalues for this thread */
   luaC_separateudata(L, 1);  /* separate udata that have GC metamethods */
   L->errfunc = 0;  /* no error function during GC metamethods */
-  
+
+  /* 要考虑已经被finalized，且尚在g_tmudata链表上，没有被gc的ud 
+  ** 这里调用其mt
+  */
   do {  /* repeat until no more errors */
     L->ci = L->base_ci;
     L->base = L->top = L->ci->base;

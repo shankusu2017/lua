@@ -591,11 +591,11 @@ static void atomic (lua_State *L) {
   g->grayagain = NULL;
   propagateall(g);
 
-  /* 两行函数的调用有前后顺序 */
+  /* 下面三行函数的调用有前后顺序 */
   udsize = luaC_separateudata(L, 0);  /* separate(分离) userdata to be finalized */
   marktmu(g);  /* mark `preserved' userdata */
-  
   udsize += propagateall(g);  /* remark, to propagate `preserveness' */
+  
   cleartable(g->weak);  /* remove collected objects from weak tables */
   
   /* flip current white 保留[7,2]，翻转[1,0]*/

@@ -27,6 +27,12 @@
   unsigned argument.
 ===========================================================================*/
 
+/**********
+B C A OP
+ Bx A OP
+sBx A OP
+***********/
+
 
 enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 
@@ -71,7 +77,7 @@ enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 ** n = 3, p = 5 -> 00000000000000000000000011100000
 ** n：位数，p:位置
 */
-#define MASK1(n,p)	((~((~(Instruction)0)<<n))<<p)
+#define MASK1(n,p)	( (~ ((~(Instruction)0)<<n) ) <<p)
 
 /* creates a mask with `n' 0 bits at position `p' */
 #define MASK0(n,p)	(~MASK1(n,p))
@@ -80,25 +86,30 @@ enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 ** the following macros help to manipulate instructions
 */
 
+/* return i.op; i.op = o  */
 #define GET_OPCODE(i)	(cast(OpCode, ((i)>>POS_OP) & MASK1(SIZE_OP,0)))
 #define SET_OPCODE(i,o)	((i) = (((i)&MASK0(SIZE_OP,POS_OP)) | \
 		((cast(Instruction, o)<<POS_OP)&MASK1(SIZE_OP,POS_OP))))
-/* 去arg.A域的值 */
-#define GETARG_A(i)	(cast(int, ((i)>>POS_A) & MASK1(SIZE_A,0)))
-#define SETARG_A(i,u)	((i) = (((i)&MASK0(SIZE_A,POS_A)) | \
-		((cast(Instruction, u)<<POS_A)&MASK1(SIZE_A,POS_A))))
 
+/* return i.A; i.A = u */
+#define GETARG_A(i)	(cast(int, ((i)>>POS_A) & MASK1(SIZE_A,0)))
+#define SETARG_A(i,a)	((i) = (((i)&MASK0(SIZE_A,POS_A)) | \
+		((cast(Instruction, a)<<POS_A)&MASK1(SIZE_A,POS_A))))
+		
+/* return i.B; i.B = b */
 #define GETARG_B(i)	(cast(int, ((i)>>POS_B) & MASK1(SIZE_B,0)))
 #define SETARG_B(i,b)	((i) = (((i)&MASK0(SIZE_B,POS_B)) | \
 		((cast(Instruction, b)<<POS_B)&MASK1(SIZE_B,POS_B))))
-
+		
+/* return i.C; i.C = c */
 #define GETARG_C(i)	(cast(int, ((i)>>POS_C) & MASK1(SIZE_C,0)))
-#define SETARG_C(i,b)	((i) = (((i)&MASK0(SIZE_C,POS_C)) | \
-		((cast(Instruction, b)<<POS_C)&MASK1(SIZE_C,POS_C))))
+#define SETARG_C(i,c)	((i) = (((i)&MASK0(SIZE_C,POS_C)) | \
+		((cast(Instruction, c)<<POS_C)&MASK1(SIZE_C,POS_C))))
 
+/* return i.Bx; i.Bx = bx */
 #define GETARG_Bx(i)	(cast(int, ((i)>>POS_Bx) & MASK1(SIZE_Bx,0)))
-#define SETARG_Bx(i,b)	((i) = (((i)&MASK0(SIZE_Bx,POS_Bx)) | \
-		((cast(Instruction, b)<<POS_Bx)&MASK1(SIZE_Bx,POS_Bx))))
+#define SETARG_Bx(i,bx)	((i) = (((i)&MASK0(SIZE_Bx,POS_Bx)) | \
+		((cast(Instruction, bx)<<POS_Bx)&MASK1(SIZE_Bx,POS_Bx))))
 
 #define GETARG_sBx(i)	(GETARG_Bx(i)-MAXARG_sBx)
 #define SETARG_sBx(i,b)	SETARG_Bx((i),cast(unsigned int, (b)+MAXARG_sBx))
@@ -106,8 +117,8 @@ enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 
 #define CREATE_ABC(o,a,b,c)	((cast(Instruction, o)<<POS_OP) \
 			| (cast(Instruction, a)<<POS_A) \
-			| (cast(Instruction, b)<<POS_B) \
-			| (cast(Instruction, c)<<POS_C))
+			| (cast(Instruction, c)<<POS_C)) \
+			| (cast(Instruction, b)<<POS_B)
 
 #define CREATE_ABx(o,a,bc)	((cast(Instruction, o)<<POS_OP) \
 			| (cast(Instruction, a)<<POS_A) \
