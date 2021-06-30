@@ -89,7 +89,7 @@ void luaK_ret (FuncState *fs, int first, int nret) {
   luaK_codeABC(fs, OP_RETURN, first, nret+1, 0);	/* 这里可以反推OP_RETURNS中A,B,C的含义了 */
 }
 
-/* 有条件跳转 OP_TEST, OP_TESTSET */
+/* 条件跳转 OP_TEST, OP_TESTSET */
 static int condjump (FuncState *fs, OpCode op, int A, int B, int C) {
   luaK_codeABC(fs, op, A, B, C);
   return luaK_jump(fs);
@@ -130,14 +130,19 @@ static int getjump (FuncState *fs, int pc) {
     return (pc+1)+offset;  /* turn offset into absolute position */
 }
 
-
+/* 获取跳转指令前的控制指令 eg: OP_EQ 
+** testTMode测试成立，意味着pc指向的是后面的OP_JUMP指令，这里返回前面的OP_EQ控制指令
+*/
 static Instruction *getjumpcontrol (FuncState *fs, int pc) {
   Instruction *pi = &fs->f->code[pc];
   /* 参考 jumponcond 函数，这里需往后退一格子 */
-  if (pc >= 1 && testTMode(GET_OPCODE(*(pi-1))))
+  if (pc >= 1 && testTMode(GET_OPCODE(*(pi-1)))) {
+  	PrintOneCode(*(pi-1));
     return pi-1;
-  else
+  } else {
+  	PrintOneCode(*pi);
     return pi;
+  }
 }
 
 
@@ -148,21 +153,40 @@ static Instruction *getjumpcontrol (FuncState *fs, int pc) {
 static int need_value (FuncState *fs, int list) {
   for (; list != NO_JUMP; list = getjump(fs, list)) {
     Instruction i = *getjumpcontrol(fs, list);
-    if (GET_OPCODE(i) != OP_TESTSET) return 1;
+	/*
+	** OP_TESTST : if (R(B) <=> C) then R(A) := R(B) else pc++
+	**    指令中的 R(A):=R(B)，已经给reg赋值了
+	** OP_TEST(if not (R(A) <=> C) then pc++), OP_LT 等关系指令仅判断了cond，
+	** 并没有实际的给reg进行赋值操作
+	**
+	** 结合调用的前提(在exp2reg()函数中)，这里判断不等于OP_TESTSET即可
+	*/
+    if (GET_OPCODE(i) != OP_TESTSET)
+		return 1;
   }
   return 0;  /* not found */
 }
 
-/* 继续处理 jumponcond 函数生成的 OP_TESTSET 逻辑跳转指令 */
+/* 继续处理 jumponcond 函数生成的 OP_TESTSET 逻辑跳转指令 
+** OP_TEST,		A C		if not (R(A) <=> C) then pc++			
+** OP_TESTSET,	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++
+*/
 static int patchtestreg (FuncState *fs, int node, int reg) {
   Instruction *i = getjumpcontrol(fs, node);
   if (GET_OPCODE(*i) != OP_TESTSET)
     return 0;  /* cannot patch other instructions */
-  
+
+  /* local a = b and c */
   if (reg != NO_REG && reg != GETARG_B(*i))
     SETARG_A(*i, reg);
-  else  /* no register to put value or register already has the value */
+  else { /* no register to put value or register already has the value */
+  	/* 指令优化
+  	** local a = a and b 
+  	** if (a and b) then block end
+    ** if Done then block end  Done里面的跳转指令也需要优化
+    */
     *i = CREATE_ABC(OP_TEST, GETARG_B(*i), 0, GETARG_C(*i));
+  }
 
   return 1;
 }
@@ -537,21 +561,33 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
   /* 将表达式的src.val赋值给dst(reg) */
   discharge2reg(fs, e, reg);
 
-  /* 处理表达式中剩余的JMP逻辑
-  ** eg.2:
-  ** 	local b, c
-  ** 	local a = b and c
+  /* 
+  ** 
+  ** local a = b > c
+  ** 关系指令的e.u.s.info指向的jmp要跳转到true.list
+  ** 故而这里是e.t
   */
   if (e->k == VJMP)
     luaK_concat(fs, &e->t, e->u.s.info);  /* put this jump in `t' list */
-  if (hasjumps(e)) {	/* eg.2 */
+
+  /*
+  ** 处理表达式中剩余的JMP逻辑
+  ** 	local a, z = b and c, d
+  **    或者 local a = b > c
+  */
+  if (hasjumps(e)) {
     int final;  /* position after whole expression */
     int p_f = NO_JUMP;  /* position of an eventual LOAD false */
     int p_t = NO_JUMP;  /* position of an eventual LOAD true */
     if (need_value(fs, e->t) || need_value(fs, e->f)) {
       int fj = (e->k == VJMP) ? NO_JUMP : luaK_jump(fs);
-      p_f = code_label(fs, reg, 0, 1);
+
+	  /* R(A) := (Bool)B; if (C) pc++ 
+	  ** p_f,p_t的执行是互斥的且执行完毕后pc均指向p_t+1
+	  */
+      p_f = code_label(fs, reg, 0, 1);	/* path.false */
       p_t = code_label(fs, reg, 1, 0);
+	  
       luaK_patchtohere(fs, fj);
     }
     final = luaK_getlabel(fs);
@@ -723,9 +759,17 @@ void luaK_self (FuncState *fs, expdesc *e, expdesc *key) {
   e->k = VNONRELOC;
 }
 
-/* invert:颠倒 */
+/* invert:颠倒 
+** OP_EQ等关系指令默认后面跟随false.path，
+** 如果某个表达式后面不是false.path(eg ifstat(), not a>b...)
+** 那么需要将关系指令的参数A进行反转以实现正确的语义
+*/
 static void invertjump (FuncState *fs, expdesc *e) {
   Instruction *pc = getjumpcontrol(fs, e->u.s.info);
+  /* 测试指令仅有 OP_LE.., OP_TEST, OP_TESTSET, OP_TFORLOOP
+  ** 能用在exp中单独求值的，去掉OP_TFORLOOP, 
+  ** 这里为何还要不能是OP_TEST/OP_TESTSET呢?
+  */
   lua_assert(testTMode(GET_OPCODE(*pc)) && GET_OPCODE(*pc) != OP_TESTSET &&
                                            GET_OPCODE(*pc) != OP_TEST);
   SETARG_A(*pc, !(GETARG_A(*pc)));
@@ -755,7 +799,7 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   return condjump(fs, OP_TESTSET, NO_REG, e->u.s.info, cond);	
 }
 
-/* */
+/* 这里的go是goon的意思 */
 void luaK_goiftrue (FuncState *fs, expdesc *e) {
   int pc;  /* pc of last jump */
   luaK_dischargevars(fs, e);
@@ -766,14 +810,12 @@ void luaK_goiftrue (FuncState *fs, expdesc *e) {
       break;
     }
     case VJMP: {
-	  /* luaK_posfix 函数中的cond是反的，这里再次取反，就反反得正了 
-	  ** eg: WHILE (a > b) DO
-	  **        body
-	  **     END
-	  **   关闭表达式解析初步解析后，这里进行收尾
+	  /* 关系指令(IF (a>b) THEN statment END)
+	  ** eg: EQ, JMP, 
+	  ** 紧接着的是false.path，和这里的true,相反，需要翻转条件 
 	  */
       invertjump(fs, e);
-      pc = e->u.s.info;
+      pc = e->u.s.info;	/* 原本上面指令接着的是JMP->true.path，这里反转后就成了false.path了 */
       break;
     }
     default: {
@@ -850,7 +892,10 @@ static void codenot (FuncState *fs, expdesc *e) {
       e->k = VFALSE;
       break;
     }
-    case VJMP: {
+    case VJMP: {	/* IF (not (a > b)) THEN
+    				**    STATMENT
+    				** END
+    				*/
       invertjump(fs, e);
       break;
     }
@@ -983,7 +1028,7 @@ void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e) {
   }
 }
 
-/* infix: 中缀 a = b + c 解析c之前先处理b */
+/* infix: 中缀 a = b + c 解析c之前先处理 '+' */
 void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   switch (op) {
     case OPR_AND: {
@@ -1004,7 +1049,7 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
       break;
     }
     default: {
-      luaK_exp2RK(fs, v);
+      luaK_exp2RK(fs, v);	/* 将v"加载"到reg */
       break;
     }
   }
@@ -1064,9 +1109,6 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
     case OPR_DIV: codearith(fs, OP_DIV, e1, e2); break;
     case OPR_MOD: codearith(fs, OP_MOD, e1, e2); break;
     case OPR_POW: codearith(fs, OP_POW, e1, e2); break;
-	/* 这里的C和指令执行中的逻辑是反的，没关系，
-	** 后面会有 invertjump()函数进行取反处理，反反就得正了 
-	*/
     case OPR_EQ: codecomp(fs, OP_EQ, 1, e1, e2); break;
     case OPR_NE: codecomp(fs, OP_EQ, 0, e1, e2); break;
     case OPR_LT: codecomp(fs, OP_LT, 1, e1, e2); break;
@@ -1101,6 +1143,8 @@ static int luaK_code (FuncState *fs, Instruction i, int line) {
   luaM_growvector(fs->L, f->lineinfo, fs->pc, f->sizelineinfo, int,
                   MAX_INT, "code size overflow");
   f->lineinfo[fs->pc] = line;
+
+  PrintOneCode(i);
   
   return fs->pc++;				/* pc指向下一个待生成指令的idx,记住这一点对理解跳转逻辑是必要的 */
 }	

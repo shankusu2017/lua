@@ -58,11 +58,11 @@ const char *const luaP_opnames[NUM_OPCODES+1] = {
 
 #define opmode(t,a,b,c,m) (((t)<<7) | ((a)<<6) | ((b)<<4) | ((c)<<2) | (m))
 
-/* bit.7:指令是否涉及条件跳转 
-** bit.6:是否修改寄存器A
-** bit.54 参数B
-** bit.32 参数A
-** bit.10 参数模式
+/* bit.7 	指令是否涉及条件跳转 
+** bit.6 	是否修改寄存器A
+** bit.54 	参数B
+** bit.32 	参数A
+** bit.10 	指令模式(BCA, BxA, BA)
 */
 const lu_byte luaP_opmodes[NUM_OPCODES] = {
 /*       T  A    B       C     mode		   opcode	*/

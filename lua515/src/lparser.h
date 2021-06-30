@@ -179,8 +179,10 @@ typedef enum {
   /* 索引表达式 eg: tbl(info).aux(aux) */
   VINDEXED,		/* info = table register; aux = index register (or `k') */
 
-  /* 跳转表达式，常用于关系表达式 */
-  VJMP,			/* info = instruction pc */
+  /* 跳转表达式，用于关系表达式 
+  ** eg: OP_EQ
+  */
+  VJMP,			/* info = jmp.instruction pc */
 
   /* 表达式尚未加载到reg（目标reg尚未确定，可以放在栈的任意位置，只要能访问到）
   ** info:本指令在指令数组中的索引，方便后面回填本指令的目标地址寄存器(R(A))

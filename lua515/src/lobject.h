@@ -108,6 +108,7 @@ typedef struct lua_TValue {
 #define hvalue(o)	check_exp(ttistable(o), &(o)->value.gc->h)
 #define thvalue(o)	check_exp(ttisthread(o), &(o)->value.gc->th)
 
+/* 为啥不是l_istrue(o)呢， 因为l_isfalse判断起来简单 */
 #define l_isfalse(o)	(ttisnil(o) || (ttisboolean(o) && bvalue(o) == 0))
 
 /*

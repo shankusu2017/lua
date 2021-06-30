@@ -1,8 +1,16 @@
 -- local a
 -- local a = b + c + d
-while(true)do
-	break
+-- while(true)do
+-- 	break
+-- end
+if (a) then
+	c = 0
 end
+-- if (a>b) then
+-- 	local c = 0
+-- else if (a < b) then
+-- 	local c = 0
+-- end
 
 -- local d
 -- local e = nil

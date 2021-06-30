@@ -117,7 +117,7 @@ static void reallymarkobject (global_State *g, GCObject *o) {
     }
     case LUA_TFUNCTION: {
       gco2cl(o)->c.gclist = g->gray;
-      g->gray = o;gclist
+      g->gray = o;
       break;
     }
     case LUA_TTABLE: {

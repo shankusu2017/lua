@@ -225,3 +225,74 @@ void PrintFunction(const Proto* f, int full)
  }
  for (i=0; i<n; i++) PrintFunction(f->p[i],full);
 }
+
+LUAI_FUNC void PrintOneCode(Instruction i) {
+	 printf("\n");
+	 OpCode o=GET_OPCODE(i);
+	 int a=GETARG_A(i);
+	 int b=GETARG_B(i);
+	 int c=GETARG_C(i);
+	 int bx=GETARG_Bx(i);
+	 int sbx=GETARG_sBx(i);
+	 printf("%-9s\t",luaP_opnames[o]);
+	 switch (getOpMode(o))
+	 {
+	  case iABC:
+	   printf("%d",a);
+	   if (getBMode(o)!=OpArgN) printf(" %d",ISK(b) ? (-1-INDEXK(b)) : b);
+	   if (getCMode(o)!=OpArgN) printf(" %d",ISK(c) ? (-1-INDEXK(c)) : c);
+	   break;
+	  case iABx:
+	   if (getBMode(o)==OpArgK) printf("%d %d",a,-1-bx); else printf("%d %d",a,bx);
+	   break;
+	  case iAsBx:
+	   if (o==OP_JMP) printf("%d",sbx); else printf("%d %d",a,sbx);
+	   break;
+	 }
+	 switch (o)
+	 {
+	  case OP_LOADK:
+	   printf("\t; OP_LOADK");
+	   break;
+	  case OP_GETUPVAL:
+	  case OP_SETUPVAL:
+	   printf("\t; OP_GETUPVAL/OP_SETUPVAL");
+	   break;
+	  case OP_GETGLOBAL:
+	  case OP_SETGLOBAL:
+	   printf("\t; OP_GETGLOBAL/OP_SETGLOBAL");
+	   break;
+	  case OP_GETTABLE:
+	  case OP_SELF:
+    	printf("\t; OP_GETTABLE/OP_SELF");
+	   break;
+	  case OP_SETTABLE:
+	  case OP_ADD:
+	  case OP_SUB:
+	  case OP_MUL:
+	  case OP_DIV:
+	  case OP_POW:
+	  case OP_EQ:
+	  case OP_LT:
+	  case OP_LE:
+	   if (ISK(b) || ISK(c))
+	   {
+		printf("\t; ");
+	   }
+	   break;
+	  case OP_JMP:
+	  case OP_FORLOOP:
+	  case OP_FORPREP:
+	   printf("\t; to OP_JMP/OP_FORLOOP/OP_FORPREP");
+	   break;
+	  case OP_CLOSURE:
+	   printf("\t; OP_CLOSURE");
+	   break;
+	  case OP_SETLIST:
+	   printf("\t; OP_SETLIST");
+	   break;
+	  default:
+	   break;
+	 }
+	 printf("\n");
+}

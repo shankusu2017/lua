@@ -568,10 +568,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         dojump(L, pc, GETARG_sBx(i));
         continue;
       }
-	  	/* KEYCODE 重点，难点，代表性的指令 
-	  	** if ((RK(B) == RK(C)) ~= A) then pc++
-	  	** OP_EQ后面紧跟着是跳转指令，这里猜测，跳转的值Bx应该短1，因为后面又进行了pc++
-	  	*/
+	  	/* KEYCODE 重点，难点，代表性的指令 */
       case OP_EQ: {
         TValue *rb = RKB(i);
         TValue *rc = RKC(i);

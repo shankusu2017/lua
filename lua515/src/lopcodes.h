@@ -165,22 +165,22 @@ typedef enum {
 /*----------------------------------------------------------------------
 name		args	description
 ------------------------------------------------------------------------*/
-OP_MOVE,/*		A B		R(A) := R(B)					*/
-OP_LOADK,/*		A Bx	R(A) := Kst(Bx)					*/
-OP_LOADBOOL,/*	A B C	R(A) := (Bool)B; if (C) pc++			*/
+OP_MOVE,/*		A B		R(A) := R(B)						*/
+OP_LOADK,/*		A Bx	R(A) := Kst(Bx)						*/
+OP_LOADBOOL,/*	A B C	R(A) := (Bool)B; if (C) pc++		*/
 OP_LOADNIL,/*	A B		R(A) := ... := R(B) := nil			*/
-OP_GETUPVAL,/*	A B		R(A) := UpValue[B]				*/
+OP_GETUPVAL,/*	A B		R(A) := UpValue[B]					*/
 
 OP_GETGLOBAL,/*	A Bx	R(A) := Gbl[Kst(Bx)]				*/
-OP_GETTABLE,/*	A B C	R(A) := R(B)[RK(C)]				*/
+OP_GETTABLE,/*	A B C	R(A) := R(B)[RK(C)]					*/
 
 OP_SETGLOBAL,/*	A Bx	Gbl[Kst(Bx)] := R(A)				*/
-OP_SETUPVAL,/*	A B		UpValue[B] := R(A)				*/
+OP_SETUPVAL,/*	A B		UpValue[B] := R(A)					*/
 OP_SETTABLE,/*	A B C	R(A)[RK(B)] := RK(C)				*/
 
 OP_NEWTABLE,/*	A B C	R(A) := {} (size = B,C)				*/
 
-OP_SELF,/*		A B C	R(A+1) := R(B); R(A) := R(B)[RK(C)]		*/
+OP_SELF,/*		A B C	R(A+1) := R(B); R(A) := R(B)[RK(C)]	*/
 
 OP_ADD,/*		A B C	R(A) := RK(B) + RK(C)				*/
 OP_SUB,/*		A B C	R(A) := RK(B) - RK(C)				*/
@@ -188,13 +188,13 @@ OP_MUL,/*		A B C	R(A) := RK(B) * RK(C)				*/
 OP_DIV,/*		A B C	R(A) := RK(B) / RK(C)				*/
 OP_MOD,/*		A B C	R(A) := RK(B) % RK(C)				*/
 OP_POW,/*		A B C	R(A) := RK(B) ^ RK(C)				*/
-OP_UNM,/*		A B		R(A) := -R(B)					*/
-OP_NOT,/*		A B		R(A) := not R(B)				*/
+OP_UNM,/*		A B		R(A) := -R(B)						*/
+OP_NOT,/*		A B		R(A) := not R(B)					*/
 OP_LEN,/*		A B		R(A) := length of R(B)				*/
 
 OP_CONCAT,/*	A B C	R(A) := R(B).. ... ..R(C)			*/
 
-OP_JMP,/*	sBx	pc+=sBx					*/
+OP_JMP,/*		sBx		pc+=sBx								*/
 
 OP_EQ,/*	A B C	if ((RK(B) == RK(C)) ~= A) then pc++		*/
 OP_LT,/*	A B C	if ((RK(B) <  RK(C)) ~= A) then pc++  		*/

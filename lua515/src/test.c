@@ -129,20 +129,19 @@ int main(int argc, char *argv[]) {
     }
     luaL_openlibs(vm);  /* open libraries */
 
-    int times = 0;
-    for (times = 0; times < 100; times++) {
-      lua_pushnumber(vm, times);
-      lua_newtable(vm);
-      lua_rawset(vm, LUA_GLOBALSINDEX);
-    }
-
-    lua_close(vm);
-    return 0;
+    // int times = 0;
+    // for (times = 0; times < 100; times++) {
+    //   lua_pushnumber(vm, times);
+    //   lua_newtable(vm);
+    //   lua_rawset(vm, LUA_GLOBALSINDEX);
+    // }
+    // lua_close(vm);
+    // return 0;
 
     {   // register C'fun
 
-        lua_pushcfunction(vm, t_fun_c);
-        lua_setglobal(vm, "t_fun_c");
+        // lua_pushcfunction(vm, t_fun_c);
+        // lua_setglobal(vm, "t_fun_c");
     }
 
 
