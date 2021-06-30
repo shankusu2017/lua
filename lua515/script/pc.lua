@@ -3,8 +3,12 @@
 -- while(true)do
 -- 	break
 -- end
-if (a) then
-	c = 0
+-- if (a) then
+-- 	c = 0
+-- end
+local b, c, d
+function f()
+	b = c > d
 end
 -- if (a>b) then
 -- 	local c = 0

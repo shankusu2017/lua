@@ -381,10 +381,9 @@ void luaK_setoneret (FuncState *fs, expdesc *e) {
   	** 函数调用返回的第一个值占用的reg就是函数指针本身占用的reg
   	** 同时e.u.s.info = R(A)也是基于这个道理
   	*/
-    e->k = VNONRELOC;	
+    e->k = VNONRELOC;	/* 表达式的reg.addr已确定，故而是VNONRELOC */
     e->u.s.info = GETARG_A(getcode(fs, e));
-  }
-  else if (e->k == VVARARG) {
+  } else if (e->k == VVARARG) {
     SETARG_B(getcode(fs, e), 2);	/* 2:期待返回一个返回值 */
     e->k = VRELOCABLE;  /* can relocate its simple result */
   }
@@ -443,7 +442,7 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
       break;
     }
 	
-	/* !!!!常量，常量，常量 不需要用到reg，无需更新reg的信息e->k了 */
+	/* !!!!常量，常量，常量 求其值时不需要用到reg，无需更新reg的信息e->k了 */
 	case VNIL:
 	case VTRUE:
 	case VFALSE:
@@ -452,7 +451,9 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
 		break;
 	}
 	
-	/* 跳转表达式，已生成对应的跳转指令 */
+	/* 关系表达式，后续如果需要将其值加载到reg，
+	** 则是在后面连续生成2条OP_LOADBOOL指令
+	*/
 	case VJMP:
 		break;
 			
@@ -536,7 +537,6 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
         luaK_codeABC(fs, OP_MOVE, reg, e->u.s.info, 0);
       break;
     }
-	/* VJMP尚不理解 */
     default: {
       lua_assert(e->k == VVOID || e->k == VJMP);
       return;  /* nothing to do... */
@@ -639,6 +639,7 @@ int luaK_exp2anyreg (FuncState *fs, expdesc *e) {
     if (!hasjumps(e)) return e->u.s.info;  /* exp is already in a register */
     if (e->u.s.info >= fs->nactvar) {  /* reg. is not a local? */
       exp2reg(fs, e, e->u.s.info);  /* put value on it */
+	  assert(0);	// 不知道这块代码如何才能被调用，这里打一个死亡点
       return e->u.s.info;
     }
   }
