@@ -54,8 +54,13 @@ typedef enum UnOpr {
 LUAI_FUNC void luaK_dischargevars (FuncState *fs, expdesc *e);	/* discharge:释放 */
 LUAI_FUNC int luaK_exp2anyreg (FuncState *fs, expdesc *e);
 LUAI_FUNC void luaK_exp2nextreg (FuncState *fs, expdesc *e);
+
 LUAI_FUNC void luaK_exp2val (FuncState *fs, expdesc *e);
 LUAI_FUNC int luaK_exp2RK (FuncState *fs, expdesc *e);
+
+LUAI_FUNC void luaK_setoneret (FuncState *fs, expdesc *e);
+LUAI_FUNC void luaK_storevar (FuncState *fs, expdesc *var, expdesc *e);
+
 LUAI_FUNC void luaK_patchlist (FuncState *fs, int list, int target);
 LUAI_FUNC void luaK_patchtohere (FuncState *fs, int list);
 LUAI_FUNC void luaK_goiftrue (FuncState *fs, expdesc *e);
@@ -63,6 +68,7 @@ LUAI_FUNC void luaK_goiftrue (FuncState *fs, expdesc *e);
 LUAI_FUNC void luaK_prefix (FuncState *fs, UnOpr op, expdesc *v);
 LUAI_FUNC void luaK_infix (FuncState *fs, BinOpr op, expdesc *v);
 LUAI_FUNC void luaK_posfix (FuncState *fs, BinOpr op, expdesc *v1, expdesc *v2);
+
 LUAI_FUNC void luaK_setlist (FuncState *fs, int base, int nelems, int tostore);
 LUAI_FUNC int luaK_codeABx (FuncState *fs, OpCode o, int A, unsigned int Bx);
 LUAI_FUNC int luaK_codeABC (FuncState *fs, OpCode o, int A, int B, int C);
@@ -74,9 +80,7 @@ LUAI_FUNC int luaK_stringK (FuncState *fs, TString *s);
 LUAI_FUNC int luaK_numberK (FuncState *fs, lua_Number r);
 LUAI_FUNC void luaK_self (FuncState *fs, expdesc *e, expdesc *key);
 LUAI_FUNC void luaK_indexed (FuncState *fs, expdesc *t, expdesc *k);
-LUAI_FUNC void luaK_storevar (FuncState *fs, expdesc *var, expdesc *e);
 LUAI_FUNC void luaK_setreturns (FuncState *fs, expdesc *e, int nresults);
-LUAI_FUNC void luaK_setoneret (FuncState *fs, expdesc *e);
 LUAI_FUNC int luaK_jump (FuncState *fs);
 LUAI_FUNC void luaK_ret (FuncState *fs, int first, int nret);
 LUAI_FUNC void luaK_concat (FuncState *fs, int *l1, int l2);

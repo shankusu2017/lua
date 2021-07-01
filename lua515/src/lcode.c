@@ -649,10 +649,12 @@ int luaK_exp2anyreg (FuncState *fs, expdesc *e) {
   return e->u.s.info;
 }
 
-/* 类似 LOAD_XXX 生成表达式的加载指令(！！！！不是CP_XXX拷贝一份e的值到reg的拷贝指令) */
+/* 类似 LOAD_XXX 生成表达式的加载指令(！！！！不是CP_XXX拷贝一份e的值到reg的拷贝指令)
+** 要处理诸如 tbl{[a>b] = 3},所以这里要区分hasjumps这种情况
+*/
 void luaK_exp2val (FuncState *fs, expdesc *e) {
   /* */
-  if (hasjumps(e))
+  if (hasjumps(e))			/* tbl{[a>b] = 3} */
     luaK_exp2anyreg(fs, e);	/* 求解表达式的src.val后，将表达式的值放到下一个free.reg中 */
   else
     luaK_dischargevars(fs, e);	/* 对间接表达式（原值不在reg中或不是直接值的）生成求值指令 */
@@ -1049,7 +1051,7 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
       if (!isnumeral(v)) luaK_exp2RK(fs, v);
       break;
     }
-    default: {
+    default: {	/* 关系运算符 */
       luaK_exp2RK(fs, v);	/* 将v"加载"到reg */
       break;
     }

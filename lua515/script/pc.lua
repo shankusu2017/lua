@@ -1,3 +1,33 @@
+f(a>b, c>d)
+
+local a = nil
+if (-a) then
+    return 0
+end
+local d = e > b
+do
+    return a > b
+end
+do
+    return f() > f2()
+end
+do
+    local d = f() > f2() and f3() > f4 ()
+end
+
+if ((gf()() > b) > (f()() > b)) then
+	local c = 1
+end
+
+local v1, v2, v3, v4
+
+f = function ()
+    if (v1.v2>v2.v3 and v3.v4 > v4.v5) then
+	end
+end
+-- if (a() > b) then
+-- 	c = 0
+-- end
 -- local a
 -- local a = b + c + d
 -- while(true)do
@@ -6,10 +36,10 @@
 -- if (a) then
 -- 	c = 0
 -- end
-local b, c, d
-function f()
-	b = c > d
-end
+-- local b, c, d
+-- function f()
+-- 	b = c > d
+-- end
 -- if (a>b) then
 -- 	local c = 0
 -- else if (a < b) then
