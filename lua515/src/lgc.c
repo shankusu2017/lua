@@ -101,7 +101,6 @@ static void reallymarkobject (global_State *g, GCObject *o) {
       gray2black(o);  
       if (mt) markobject(g, mt);	
       markobject(g, gco2u(o)->env);
-	  
       return;
     }
     case LUA_TUPVAL: {

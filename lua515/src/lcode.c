@@ -28,7 +28,7 @@
 /* 这个判断条件有意哈 */
 #define hasjumps(e)	((e)->t != (e)->f)
 
-
+/* TODOKNOW */
 static int isnumeral(expdesc *e) {
   return (e->k == VKNUM &&	/* 仅仅e->k == VKNUM 不够么？ */
 		  	e->t == NO_JUMP &&
@@ -72,6 +72,8 @@ void luaK_nil (FuncState *fs, int from, int n) {
 ** RETURNS j(new.jump)
 **
 ** 待回填的跳转链表指向我，而我又指向其它pc，那么将上述链表和我串联在一起即可
+**
+** OP_JMP sBx		pc+=sBx
 */
 int luaK_jump (FuncState *fs) {
   int jpc = fs->jpc;  	/* save list of jumps to here */
@@ -89,7 +91,11 @@ void luaK_ret (FuncState *fs, int first, int nret) {
   luaK_codeABC(fs, OP_RETURN, first, nret+1, 0);	/* 这里可以反推OP_RETURNS中A,B,C的含义了 */
 }
 
-/* 条件跳转 OP_TEST, OP_TESTSET */
+/* 条件跳转
+** OP_TEST 	 		 A C	if not (R(A) <=> C) then pc++ 
+** OP_TESTSET 		 A B C	if (R(B) <=> C) then R(A) := R(B) else pc++
+** OP_EQ 			 A B C	if ((RK(B) == RK(C)) ~= A) then pc++
+*/
 static int condjump (FuncState *fs, OpCode op, int A, int B, int C) {
   luaK_codeABC(fs, op, A, B, C);
   return luaK_jump(fs);
@@ -98,7 +104,10 @@ static int condjump (FuncState *fs, OpCode op, int A, int B, int C) {
 /* 将待回填的跳转指令pc指向dest */
 static void fixjump (FuncState *fs, int pc, int dest) {
   Instruction *jmp = &fs->f->code[pc];
-  /* 下面计算跳转指令的跳转目标绝对值时也加了1，和这里是一致的 */
+  /* 
+  ** 虚拟机执行过程中执行某条指令i时,pc寄存器已经指向了下一条待执行的指令，故而在计算offset需要
+  ** -1, 等效于offset=dest-pc-1
+  */
   int offset = dest-(pc+1);		
   lua_assert(dest != NO_JUMP);
   if (abs(offset) > MAXARG_sBx)
@@ -130,8 +139,8 @@ static int getjump (FuncState *fs, int pc) {
     return (pc+1)+offset;  /* turn offset into absolute position */
 }
 
-/* 获取跳转指令前的控制指令 eg: OP_EQ 
-** testTMode测试成立，意味着pc指向的是后面的OP_JUMP指令，这里返回前面的OP_EQ控制指令
+/* 尝试获取跳转指令前的控制指令 eg: OP_EQ, OP_TESTSET
+** testTMode测试成立，意味着pc指向的是后面的OP_JUMP指令，这里返回前面的控制指令
 */
 static Instruction *getjumpcontrol (FuncState *fs, int pc) {
   Instruction *pi = &fs->f->code[pc];
@@ -157,9 +166,11 @@ static int need_value (FuncState *fs, int list) {
 	** OP_TESTST : if (R(B) <=> C) then R(A) := R(B) else pc++
 	**    指令中的 R(A):=R(B)，已经给reg赋值了
 	** OP_TEST(if not (R(A) <=> C) then pc++), OP_LT 等关系指令仅判断了cond，
-	** 并没有实际的给reg进行赋值操作
+	** 并没有实际的赋值操作
 	**
 	** 结合调用的前提(在exp2reg()函数中)，这里判断不等于OP_TESTSET即可
+	** 常用在  local a = b >c,   local a = b or c这种只生成了跳转指令没有生存赋值指令
+	**     但又需要赋值的上下文中
 	*/
     if (GET_OPCODE(i) != OP_TESTSET)
 		return 1;
@@ -167,7 +178,7 @@ static int need_value (FuncState *fs, int list) {
   return 0;  /* not found */
 }
 
-/* 继续处理 jumponcond 函数生成的 OP_TESTSET 逻辑跳转指令 
+/* 继续处理 jumponcond 函数生成的 OP_TESTSET 逻辑跳转指令中的R(A)
 ** OP_TEST,		A C		if not (R(A) <=> C) then pc++			
 ** OP_TESTSET,	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++
 */
@@ -176,11 +187,13 @@ static int patchtestreg (FuncState *fs, int node, int reg) {
   if (GET_OPCODE(*i) != OP_TESTSET)
     return 0;  /* cannot patch other instructions */
 
-  /* local a = b and c */
-  if (reg != NO_REG && reg != GETARG_B(*i))
+  /* local a = b and c, 需将判断逻辑的结果赋值给某个reg的情况 */
+  if (reg != NO_REG && reg != GETARG_B(*i)) {
     SETARG_A(*i, reg);
-  else { /* no register to put value or register already has the value */
-  	/* 指令优化
+  } else { 
+    /* no register to put value or register already has the value 
+    ** 
+  	** 不另外保存R(B)的情况下，对指令进行优化
   	** local a = a and b 
   	** if (a and b) then block end
     ** if Done then block end  Done里面的跳转指令也需要优化
@@ -191,10 +204,10 @@ static int patchtestreg (FuncState *fs, int node, int reg) {
   return 1;
 }
 
-
+/* 优化跳转链表中的OP_TESTSET指令的R(A) */
 static void removevalues (FuncState *fs, int list) {
   for (; list != NO_JUMP; list = getjump(fs, list))
-      patchtestreg(fs, list, NO_REG);
+      patchtestreg(fs, list, NO_REG);	//  NO_REG指示函数，优化OP_TESTSET到OP_TEST
 }
 
 /* 
@@ -266,8 +279,7 @@ void luaK_checkstack (FuncState *fs, int n) {
   }
 }
 
-/* reserve reg:预定 寄存器 实际上是占用n个寄存器的意思
-*/
+/* reserve reg:预定 寄存器 实际上是占用n个寄存器的意思 */
 void luaK_reserveregs (FuncState *fs, int n) {
   luaK_checkstack(fs, n);
   fs->freereg += n;	/* 占用n个locvar,释放则n为负值或在其它函数中实现 */
@@ -278,7 +290,7 @@ static void freereg (FuncState *fs, int reg) {
   if (!ISK(reg) &&            /* 常量的就不用释放了，压根没占用reg */
       reg >= fs->nactvar) {   /* reg从0开始，nactvar从1开始，所以这里reg>=fs->nactvar是可以的
       
-  	/* 释放一个reg后,reg==fs->freereg:确保只能释放最新一个被激活的reg(作为exp的临时reg占用？) */
+  	/* 释放一个reg后,reg==fs->freereg:确保只能释放最新一个被激活的reg(作为exp的临时reg占用...) */
     fs->freereg--;
     lua_assert(reg == fs->freereg);
   }
@@ -288,7 +300,7 @@ static void freereg (FuncState *fs, int reg) {
 ** local a = b + c + d  编译+d之前整合b+c的表达式，释放一个reg
  */
 static void freeexp (FuncState *fs, expdesc *e) {
-  if (e->k == VNONRELOC)		/* 表达式的值已被CP_XXX到reg中的，才释放 (还没加载到reg，那压根没占用reg，释放个锤子*/
+  if (e->k == VNONRELOC)		/* 表达式的值在reg中才释放 (还没加载到reg，那压根没占用reg，释放个锤子*/
     freereg(fs, e->u.s.info);	/* VNONRELOC info = result register */ 
 }
 
@@ -356,7 +368,7 @@ static int nilK (FuncState *fs) {
 void luaK_setreturns (FuncState *fs, expdesc *e, int nresults) {
   /* OP_CALL A B C 		R(A), … ,R(A+C-2) := R(A)(R(A+1), … ,R(A+B-1)) */
   if (e->k == VCALL) {  /* expression is an open function call? */
-    SETARG_C(getcode(fs, e), nresults+1);
+    SETARG_C(getcode(fs, e), nresults+1);	/* Bx是无符号数，[0,+], lparser中的是[-1,+],故而这里要+1 */
   }
   else if (e->k == VVARARG) {
   	/* OP_VARARG A B 	R(A), R(A+1), ..., R(A+B-1) = vararg 
@@ -451,13 +463,15 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
 		break;
 	}
 	
-	/* 关系表达式，后续如果需要将其值加载到reg，
-	** 则是在后面连续生成2条OP_LOADBOOL指令
+	/* 
+	** 关系表达式，后续如果需要将其值加载到reg，
+	** 则是在后面的代码中连续生成2条OP_LOADBOOL指令
+	** if (a>b) 常用的业务中无需表达式的值， local a = b > c才需要，等到需要的时候再说
 	*/
 	case VJMP:
 		break;
 			
-	/* e->k已经确定了寄存器的信息了，直接返回 */
+	/* e->k估值信息已生成，这里无需做什么 */
 	case VRELOCABLE:
 	case VNONRELOC:
 		break;
@@ -467,7 +481,7 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
   }
 }
 
-
+/* 专用函数，检索context, easy */
 static int code_label (FuncState *fs, int A, int b, int jump) {
   luaK_getlabel(fs);  /* those instructions may be jump targets */
   return luaK_codeABC(fs, OP_LOADBOOL, A, b, jump);
@@ -533,7 +547,7 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
     }
 	/* 表达式e的值已确定且在reg中了，生成OP_MOVE指令，完成R(A)=R(B)逻辑 */
     case VNONRELOC: {
-      if (reg != e->u.s.info) /* 对于 a = a 这种无效的操作的优化 */
+      if (reg != e->u.s.info) /* 对于 a = a 这种操作的优化 */
         luaK_codeABC(fs, OP_MOVE, reg, e->u.s.info, 0);
       break;
     }
@@ -562,7 +576,6 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
   discharge2reg(fs, e, reg);
 
   /* 
-  ** 
   ** local a = b > c
   ** 关系指令的e.u.s.info指向的jmp要跳转到true.list
   ** 故而这里是e.t
@@ -580,7 +593,13 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
     int p_f = NO_JUMP;  /* position of an eventual LOAD false */
     int p_t = NO_JUMP;  /* position of an eventual LOAD true */
     if (need_value(fs, e->t) || need_value(fs, e->f)) {
-      int fj = (e->k == VJMP) ? NO_JUMP : luaK_jump(fs);
+		
+	  /* 
+	  ** OP_EQ, 		A B C	if ((RK(B) == RK(C)) ~= A) then pc++		
+	  ** OP_TEST,	 	A C	  if not (R(A) <=> C) then pc++ 		  
+	  ** OP_TESTSET, 	A B C   if (R(B) <=> C) then R(A) := R(B) else pc++ 
+	  */
+      int fj = (e->k == VJMP) ? NO_JUMP : luaK_jump(fs);	/* TODOKNOW */
 
 	  /* R(A) := (Bool)B; if (C) pc++ 
 	  ** p_f,p_t的执行是互斥的且执行完毕后pc均指向p_t+1
@@ -591,7 +610,12 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
       luaK_patchtohere(fs, fj);
     }
     final = luaK_getlabel(fs);
-    patchlistaux(fs, e->f, final, reg, p_f);
+	/* 
+	** 对于OP_TESTSET指令，指令内部实现了赋值操作，
+	**   跳过OP_LOADBOOL指令，直接跳转到final 
+	** 对于其他的TEST指令则挂到p_f/p_t上 
+	*/
+    patchlistaux(fs, e->f, final, reg, p_f);	
     patchlistaux(fs, e->t, final, reg, p_t);
   }
   
@@ -630,11 +654,12 @@ void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
 ** 将表达式的值加载到寄存器中(eg:VGLOBAL, VINDEXED)
 ** 已加载到reg中的则无需此步骤(VNONRELOC)),
 **
-** RETURNS:寄存器地址 
+** RETURNS:返回表达式的值的寄存器地址 
 */
 int luaK_exp2anyreg (FuncState *fs, expdesc *e) {
   /* 对表达式生成估值指令 */
   luaK_dischargevars(fs, e);
+  
   if (e->k == VNONRELOC) {	/* e的src.val已在reg中，则直接返回对应的reg */
     if (!hasjumps(e)) return e->u.s.info;  /* exp is already in a register */
     if (e->u.s.info >= fs->nactvar) {  /* reg. is not a local? */
@@ -734,6 +759,7 @@ void luaK_storevar (FuncState *fs, expdesc *var, expdesc *ex) {
       break;
     }
   }
+  
   /* 释放求ex表达式的值的过程中产生的临时寄存器 */
   freeexp(fs, ex);
 }
@@ -752,7 +778,7 @@ void luaK_self (FuncState *fs, expdesc *e, expdesc *key) {
   freeexp(fs, e);
   func = fs->freereg;
   
-  luaK_reserveregs(fs, 2);	/* 预留2个free.reg出来，留给指令OP_SELF使用 */
+  luaK_reserveregs(fs, 2);	/* 预留2个reg给OP_SELF */
   luaK_codeABC(fs, OP_SELF, func, e->u.s.info, luaK_exp2RK(fs, key));
   /* 语法要求，key必须是个TK_NAME，是个常量，故而这里不会释放上面2个reg,不明白这句话，看函数实现即可明白 */
   freeexp(fs, key);
@@ -764,14 +790,14 @@ void luaK_self (FuncState *fs, expdesc *e, expdesc *key) {
 
 /* invert:颠倒 
 ** OP_EQ等关系指令默认后面跟随false.path，
-** 如果某个表达式后面不是false.path(eg ifstat(), not a>b...)
-** 那么需要将关系指令的参数A进行反转以实现正确的语义
+** 如果某个表达式后面不是false.path(eg ifstat())
+** 或者是求反操作符 NOT 则需将关系指令的参数A进行反转以实现正确的语义
 */
 static void invertjump (FuncState *fs, expdesc *e) {
   Instruction *pc = getjumpcontrol(fs, e->u.s.info);
   /* 测试指令仅有 OP_LE.., OP_TEST, OP_TESTSET, OP_TFORLOOP
   ** 能用在exp中单独求值的，去掉OP_TFORLOOP, 
-  ** 这里为何还要不能是OP_TEST/OP_TESTSET呢?
+  ** 这里为何还要不能是OP_TEST/OP_TESTSET呢，因为函数外面的调用环境限制了其VTYPE=VJUMP，只能是关系指令
   */
   lua_assert(testTMode(GET_OPCODE(*pc)) && GET_OPCODE(*pc) != OP_TESTSET &&
                                            GET_OPCODE(*pc) != OP_TEST);
@@ -785,7 +811,7 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   ** END
   ** 对着走一遍流程就理解这里if代码了
   */
-  if (e->k == VRELOCABLE) {
+  if (e->k == VRELOCABLE) {	/* NOT exp 不用将保存结果，故而这里是VRELOCABLE */
     Instruction ie = getcode(fs, e);
     if (GET_OPCODE(ie) == OP_NOT) {
       fs->pc--;  /* remove previous OP_NOT */
@@ -814,7 +840,7 @@ void luaK_goiftrue (FuncState *fs, expdesc *e) {
     }
     case VJMP: {
 	  /* 关系指令(IF (a>b) THEN statment END)
-	  ** eg: EQ, JMP, 
+	  ** eg: EQ, JMP,  OP_EQ A B C   if ((RK(B) == RK(C)) ~= A) then pc++ 
 	  ** 紧接着的是false.path，和这里的true,相反，需要翻转条件 
 	  */
       invertjump(fs, e);
@@ -907,7 +933,7 @@ static void codenot (FuncState *fs, expdesc *e) {
       discharge2anyreg(fs, e);
       freeexp(fs, e);
 	  /* R(A) := not R(B) */
-      e->u.s.info = luaK_codeABC(fs, OP_NOT, 0, e->u.s.info, 0);
+      e->u.s.info = luaK_codeABC(fs, OP_NOT, 0, e->u.s.info, 0);	/* 这里R(A) 还不知道 */
       e->k = VRELOCABLE;
       break;
     }
@@ -1058,7 +1084,7 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   }
 }
 
-/* a = b + c 解析完c之后，将b+c合并b+c作为一个exp */
+/* a = b + c 解析完c之后，将b+c合并(b+c)作为一个exp */
 void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
   switch (op) {
     case OPR_AND: {

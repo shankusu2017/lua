@@ -1,30 +1,41 @@
-f(a>b, c>d)
+if (-(5 and 6) )then
+	local a = 4
+end
+-- fun(a and b, a or b, a > b)
+-- for k, v in pairs(tbl) do
+-- 	local a = b
+-- end
+-- local c = b or d
 
-local a = nil
-if (-a) then
-    return 0
-end
-local d = e > b
-do
-    return a > b
-end
-do
-    return f() > f2()
-end
-do
-    local d = f() > f2() and f3() > f4 ()
-end
+-- return a
+--(a>b).c
+-- f(a>b, c>d)
 
-if ((gf()() > b) > (f()() > b)) then
-	local c = 1
-end
+-- local a = nil
+-- if (-a) then
+--     return 0
+-- end
+-- local d = e > b
+-- do
+--     return a > b
+-- end
+-- do
+--     return f() > f2()
+-- end
+-- do
+--     local d = f() > f2() and f3() > f4 ()
+-- end
 
-local v1, v2, v3, v4
+-- if ((gf()() > b) > (f()() > b)) then
+-- 	local c = 1
+-- end
 
-f = function ()
-    if (v1.v2>v2.v3 and v3.v4 > v4.v5) then
-	end
-end
+-- local v1, v2, v3, v4
+
+-- f = function ()
+--     if (v1.v2>v2.v3 and v3.v4 > v4.v5) then
+-- 	end
+-- end
 -- if (a() > b) then
 -- 	c = 0
 -- end

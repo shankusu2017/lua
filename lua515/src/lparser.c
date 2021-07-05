@@ -1175,7 +1175,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
 	*/
     nextop = subexpr(ls, &v2, priority[op].right);
 
-	/* 将b和(c*d)组合起来作为一个整体表达式返回给上层逻辑 */
+	/* 将b+(c*d)组合起来作为一个整体表达式返回给上层逻辑 */
     luaK_posfix(ls->fs, op, v, &v2);
     op = nextop;
   }
