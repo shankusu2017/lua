@@ -208,7 +208,7 @@ typedef struct expdesc {
 
 
 typedef struct upvaldesc {
-  /* VLOCAL则表示在父closure的actvar中找到，可以用OP_MOVE指令
+  /* VLOCAL 则表示在父closure的actvar中找到，可以用OP_MOVE指令
   ** VUPVAL 则需OP_GETUPVAL指令
   */
   lu_byte k;

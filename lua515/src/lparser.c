@@ -5,7 +5,6 @@
 ** See Copyright Notice in lua.h
 */
 
-
 #include <string.h>
 #include <stdio.h>
 
@@ -249,17 +248,34 @@ static int indexupvalue (FuncState *fs, TString *name, expdesc *v) {
   int i;
   Proto *f = fs->f;
   int oldsize = f->sizeupvalues;
-  /* 当前存在的upvalue中已存在吗? */
+  
+  /* 已存在于fs的upvalues数组中？ */
   for (i=0; i<f->nups; i++) {
-    if (fs->upvalues[i].k == v->k &&			/* 类型为VUPVAL */
-		fs->upvalues[i].info == v->u.s.info) {	/* 在proto中的索引一致 */
-      lua_assert(f->upvalues[i] == name);		/* 名字就必须一致了 */
+  	/*
+  	** fun1()  -- block1
+  	**   local var1
+  	**   func2 function()  -- block2
+  	**        local var2 = var1  		-- 直接引用的上一层的loc.var K=LOCVAR
+  	**        fun3 function ()  -- block3
+  	**            local var3 = var1  	-- 上上层的var1了up.var       k=UPVAL
+  	**            local var4 = var2  
+  	**        end
+  	**   end
+  	** end
+  	** 直接应用了上一层的local.val则 k=VLOCAL, info表示其在上层fs中的reg.idx
+  	** 应用了上上{上}层的local.val时k=VUPVAL,info表示其在上一层的fs中的upvals数组中的下标
+  	** 不同的名字的upval可能造成info是一样的，但代表的不是同一个upval,故而这里还要判断k
+  	** eg:block3中var1.k=VUPVAL, var1.info = 0
+  	**            var2.k=LOCVAR, var2.info = 0 info一样但是k不一样
+  	*/
+    if (fs->upvalues[i].k == v->k &&
+		fs->upvalues[i].info == v->u.s.info) {
+      lua_assert(f->upvalues[i] == name);		/* 名字就必须是一样的了 */
       return i;
     }
   }
 
   /* new one */
-  
   /* 数组容量不够则扩大 */
   luaY_checklimit(fs, f->nups + 1, LUAI_MAXUPVALUES, "upvalues");
   luaM_growvector(fs->L, f->upvalues, f->nups, f->sizeupvalues,
@@ -269,10 +285,14 @@ static int indexupvalue (FuncState *fs, TString *name, expdesc *v) {
   
   f->upvalues[f->nups] = name;
   luaC_objbarrier(fs->L, f, name);
-  lua_assert(v->k == VLOCAL || v->k == VUPVAL);	/* 这里的v->k==VLOCAL ? */
+
+  /* 直接引用的上一层的loc.var则是VLOCAL，否则就是VUPVAL，不可能有第三种情况 */
+  lua_assert(v->k == VLOCAL || v->k == VUPVAL);	/* */
+  
   /* 更新到fs */
   fs->upvalues[f->nups].k = cast_byte(v->k);
   fs->upvalues[f->nups].info = cast_byte(v->u.s.info);
+  
   return f->nups++;
 }
 
@@ -292,9 +312,22 @@ static int searchvar (FuncState *fs, TString *n) {
 */
 static void markupval (FuncState *fs, int level) {
   BlockCnt *bl = fs->bl;
-  /* 这个标记过程的逻辑蛮有意思的 */
+  
+  /* 
+  ** func1() do  -- block1
+  **   local var1, var2
+  **   do -- block2
+  **       local var3
+  **       local func2 = function() do
+  **       		local var4 =  var2
+  **       end   
+  **   end
+  ** end
+  ** 这里找到被内部funcstate当作upval使用的var所在的块block1
+  */
   while (bl && bl->nactvar > level)
   	bl = bl->previous;
+  
   if (bl)
   	bl->upval = 1;
 }
@@ -573,7 +606,7 @@ Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
   /* 设置input信息，但，buff在上面就设置了，有点意思吧，z和buff对于lexState是有点不同的 */
   luaX_setinput(L, &lexstate, z, luaS_new(L, name));
 
-  /* 一个lua文件，编译模块将其当做一个函数来看待
+  /* 一个lua文件，编译模块将其当做一个main函数来看待
   ** 函数原型 function (...)
   **          end
   **
@@ -586,7 +619,7 @@ Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
   check(&lexstate, TK_EOS);	/* 直到编译到文件EOF才结束编译流程 */
   close_func(&lexstate);
   
-  lua_assert(lexstate.fs == NULL);		/* lexstate下不应该还有未编译完的funState了 */
+  lua_assert(lexstate.fs == NULL);		/* lexstate下不应该还有未编译完的funState */
   lua_assert(funcstate.prev == NULL);	/* 已编译完的主函数上面还有其它函数，不可能的嘛 */
   lua_assert(funcstate.f->nups == 0);	/* 编译结束，主函数不应该有nups了 */
   return funcstate.f;
@@ -976,11 +1009,20 @@ static void prefixexp (LexState *ls, expdesc *v) {
       luaX_next(ls);
       expr(ls, v);
       check_match(ls, ')', '(', line);
-      luaK_dischargevars(ls->fs, v);
+	  /* VLOCAL   ->VNONRELOC 
+	  ** VNIL     : nothing
+	  ** VGLOBAL  -> VRELOCABLE  GET_XXX
+	  ** VUPVAL   -> VRELOCABLE  GET_XXX
+	  ** VINDEXED -> VRELOCABLE  GET_XXX
+	  ** VJMP     : nothing
+	  ** VCALL    -> VNONRELOC  (info = result.reg, OP_CALL 中的R(C)==2在上层便已设置，这里无需再次设置 )
+	  ** VVARARG  -> VRELOCABLE (OP_VARARG中的R(B)=2,表示取一个值)
+	  */
+      luaK_dischargevars(ls->fs, v);	/* 生成估值指令(GET_XXX) */
       return;
     }
     case TK_NAME: {
-      /* 确定当前ls->t.token的变量类型(VLOCAL,VGLOBAL还是VUPVAL？)
+      /* 确定当前ls->t.token的变量类型(VLOCAL,VGLOBAL还是VUPVAL)
       **     填充expdesc.u.s.info信息
       ** 读取下一个Token
       */
@@ -1127,6 +1169,7 @@ static const struct {
   lu_byte left;  /* left priority for each binary operator */
   lu_byte right; /* right priority */
 } priority[] = {  /* ORDER OPR */
+	/* -, not, # 一元操作符的优先级为8 */
    {6, 6}, {6, 6}, {7, 7}, {7, 7}, {7, 7},  /* `+' `-' `/' `%' */
    {10, 9}, {5, 4},                 /* power and concat (right associative) */
    {3, 3}, {3, 3},                  /* equality and inequality */
@@ -1202,13 +1245,24 @@ static void expr (LexState *ls, expdesc *v) {
 ** =======================================================================
 */
 
-/* 紧接着出现的block是一个崭新的block吗 */
+/* 
+** 本块结束标志，以便从block循环中跳出，从内block到外部block
+** eg IF (condition) DO
+**		 	statment
+**    ELSEIF (condition) DO
+**			statment
+**    ELSE (condition) DO
+**			statment
+**    END
+**   
+**   遇到ELSEIF,ELSE,意味着本块解析结束了，需跳回到main-block中继续解析
+*/
 static int block_follow (int token) {
   switch (token) {	
     case TK_ELSE: case TK_ELSEIF: /* else, elseif 是一个新block的开始 */
 	case TK_UNTIL: 	/* REPEAT block UNTIL cond cond是一个新block的开始(和block没关系了) */
 	case TK_END:   	/* end表示块结束，后面当然是新block的开始 */
-    case TK_EOS:	/* 文件末尾了，当前块肯定结束了 */
+    case TK_EOS:	/* 文件末尾了，当前块(main.block)肯定结束了 */
       return 1;
     default: return 0;
   }
@@ -1229,7 +1283,8 @@ static void block (LexState *ls) {
   ** 要实现跳出WHILE.STAT中的break功能，在block函数之前调用enterblock(,,isbreakable==1)
   ** 示例直接看whilestat即可
   **
-  ** 这里之所以不准许挂bl.breaklist.jmp可能是因为 这个block函数是最内层的 DO stat END 的实现了
+  ** 这里之所以不准许挂bl.breaklist.jmp可能是因为 这个block函数是最内层的 DO stat END 的实现
+  ** 如果是循环的block则需在上层处理isbreakable==1。
   */
   enterblock(fs, &bl, 0);	
   chunk(ls);
@@ -1242,8 +1297,8 @@ static void block (LexState *ls) {
 
 
 /*
-** structure to chain all variables in the left-hand side of an
-** assignment
+** structure to chain all variables in the left-hand side of an assignment
+** LHS: left-hand-struct?
 */
 struct LHS_assign {
   struct LHS_assign *prev;
@@ -1443,10 +1498,13 @@ static void repeatstat (LexState *ls, int line) {
 
 static int exp1 (LexState *ls) {
   expdesc e;
-  int k;
+  int k;	/* 这里的k:外层在编译器没有检查，在运行期，检查了相关的var的类型，这里可以省略 */
   expr(ls, &e);
   k = e.k;
-  luaK_exp2nextreg(ls->fs, &e);
+  /* 明白这里的1了么？1表示我需要将exp加载到下1个reg中
+  ** 秒吧，这个1
+  */
+  luaK_exp2nextreg(ls->fs, &e);	
   return k;
 }
 
@@ -1736,7 +1794,8 @@ static void exprstat (LexState *ls) {
   struct LHS_assign v;
   primaryexp(ls, &v.v);
   if (v.v.k == VCALL)  /* stat -> func */
-    SETARG_C(getcode(fs, &v.v), 1);  /* call statement uses no results:直接忽略返回值 */
+  	/*  OP_CALL, A B C	R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
+    SETARG_C(getcode(fs, &v.v), 1);  /* call statement uses no results 忽略返回值 */
   else {  /* stat -> assignment */
     v.prev = NULL;
     assignment(ls, &v, 1);
@@ -1824,7 +1883,7 @@ static int statement (LexState *ls) {
       return 1;  /* must be last statement */
     }
     default: {
-      exprstat(ls);
+      exprstat(ls);	/* BNF: varlist `=` explist 或者  functioncall */
       return 0;  /* to avoid warnings */
     }
   }
@@ -1835,6 +1894,14 @@ static void chunk (LexState *ls) {
   /* chunk -> { stat [`;'] } */
   int islast = 0;	/* break和return 只能是chunk的最后一个op */
   enterlevel(ls);
+  
+  /* 
+  ** islast: BREAK, RETURN 会跳出当前block，故而只能是block的最后一个TOKEN,
+  ** 不然后面的TOKEN就不会得到语法解析器的解析或者解析到上层的block中去了(都会造成错误)
+  **
+  ** TK_ELSE, TK_ELSEIF, TK_UNTIL, TK_END, TK_EOS这些token指示语法解析器，本block已解析完毕
+  ** 需跳出本block到外部的block中去(TK_EOS则是结束整个main.blcok)
+  */
   while (!islast && !block_follow(ls->t.token)) {
     islast = statement(ls);
 	/* statement后面的';'是可选的 */

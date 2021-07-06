@@ -7,6 +7,12 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+int testF(void) {
+  int a = 0;
+  return 0;
+  int b = 0;
+}
+
 int loadFile(lua_State *vm, char *path) {
     int ret = luaL_loadfile(vm, path);
     if (0 == ret) {
@@ -164,7 +170,7 @@ int main(int argc, char *argv[]) {
        printf("load file fail, ret(%d)", ret);
        return -2;
    }
-   printf("execute lua.script\n");
+  //  printf("execute lua.script\n");
    {
         // lua_pushnumber(vm, 1);
         // lua_pushnumber(vm, 1);
@@ -172,13 +178,13 @@ int main(int argc, char *argv[]) {
         // lua_pushnumber(vm, 1);
         // ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
    }
-   ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
-   if (0 != ret) {
-       char  errmsg [1024];
-       size_t errLen;
-       printf("call fail, ret(%d). err(%s)", ret, luaL_optlstring(vm, -1, "nil", &errLen));
-       return -2;
-   }
+  //  ret = lua_pcall(vm, 0, LUA_MULTRET, 0);
+  //  if (0 != ret) {
+  //      char  errmsg [1024];
+  //      size_t errLen;
+  //      printf("call fail, ret(%d). err(%s)", ret, luaL_optlstring(vm, -1, "nil", &errLen));
+  //      return -2;
+  //  }
 
 //    t_exe_lua(vm);
 

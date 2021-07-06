@@ -403,7 +403,7 @@ void luaK_setoneret (FuncState *fs, expdesc *e) {
 
 
 /* 
-** LOAD_XXX 生成对间接表达式的求值指令 (VCALL, VARGVAR这里强制返回1个值, 需返回多个值的在上层业务中进行修正) 
+** GET_XXX 生成对间接表达式的求值指令 (VCALL, VARGVAR这里强制返回1个值, 需返回多个值的在上层业务中进行修正) 
 **
 ** cond.1 对"直接表达式"(VNIL,VTRUE,VFALSE,VKNUM,VK)，不做处理
 **            (直接表达式可以一步生成load_xxx指令到目的寄存器)
@@ -626,29 +626,6 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
 }
 
 /* 
-** CP_XXX 拷贝指令 next'free.reg = exp 
-** 确定next'free'reg前尝试释放空闲的reg，注释参考 exp2reg , discharge2reg
-*/
-void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
-  /* 
-  ** 更新exp的reg或者op信息
-  ** 不能确定exp对应指令的则e->u.info中填入指令地址，方便回填,同时e->k:更新为VRELOCABLE，表示需要回填RA?
-  */
-  luaK_dischargevars(fs, e);
-
-  /* 释放被临时占用的reg
-  ** eg: local a,b,c = funA()(), d, e
-  ** funA()()整个exp作为一个整理占用一个reg，
-  ** 解析第二个()之前funA()已经完全解析完毕故而可以释放其占用的reg了。
-  */
-  freeexp(fs, e);
-  
-  /* 申请一个reg，并将exp赋值到reg上 */
-  luaK_reserveregs(fs, 1);
-  exp2reg(fs, e, fs->freereg - 1);
-}
-
-/* 
 ** LOAD_XXX 加载指令 将"常量表达式"，"间接表达式", "VVARARG" 加载到next'free'reg中
 **
 ** 将表达式的值加载到寄存器中(eg:VGLOBAL, VINDEXED)
@@ -672,6 +649,29 @@ int luaK_exp2anyreg (FuncState *fs, expdesc *e) {
   /* e的src值还不在reg则将其加载到reg */
   luaK_exp2nextreg(fs, e);  /* default */
   return e->u.s.info;
+}
+
+/* 
+** CP_XXX 拷贝指令 next'free.reg = exp 
+** 确定next'free'reg前尝试释放空闲的reg，注释参考 exp2reg , discharge2reg
+*/
+void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
+  /* 
+  ** 更新exp的reg或者op信息
+  ** 不能确定exp对应指令的则e->u.info中填入指令地址，方便回填,同时e->k:更新为VRELOCABLE，表示需要回填RA?
+  */
+  luaK_dischargevars(fs, e);
+
+  /* 释放被临时占用的reg
+  ** eg: local a,b,c = funA()(), d, e
+  ** funA()()整个exp作为一个整理占用一个reg，
+  ** 解析第二个()之前funA()已经完全解析完毕故而可以释放其占用的reg了。
+  */
+  freeexp(fs, e);
+  
+  /* 申请一个reg，并将exp赋值到reg上 */
+  luaK_reserveregs(fs, 1);
+  exp2reg(fs, e, fs->freereg - 1);
 }
 
 /* 类似 LOAD_XXX 生成表达式的加载指令(！！！！不是CP_XXX拷贝一份e的值到reg的拷贝指令)
@@ -1084,7 +1084,9 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   }
 }
 
-/* a = b + c 解析完c之后，将b+c合并(b+c)作为一个exp */
+/* a = b + c 解析完c之后，将b+c合并(b+c)作为一个exp 
+** TODOREAD KEYFUN
+*/
 void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
   switch (op) {
     case OPR_AND: {

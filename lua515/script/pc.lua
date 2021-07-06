@@ -1,6 +1,12 @@
-if (-(5 and 6) )then
-	local a = 4
-end
+local a = b[c>d]
+local a = b.(c>d)
+
+--local a = (true).b
+
+-- if (-(5 and 6) )then
+-- 	local a = 4
+-- end
+
 -- fun(a and b, a or b, a > b)
 -- for k, v in pairs(tbl) do
 -- 	local a = b
