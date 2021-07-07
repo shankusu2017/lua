@@ -204,7 +204,7 @@ static int patchtestreg (FuncState *fs, int node, int reg) {
   return 1;
 }
 
-/* 优化跳转链表中的OP_TESTSET指令的R(A) */
+/* 优化跳转链表中的OP_TESTSET指令的R(A)             */
 static void removevalues (FuncState *fs, int list) {
   for (; list != NO_JUMP; list = getjump(fs, list))
       patchtestreg(fs, list, NO_REG);	//  NO_REG指示函数，优化OP_TESTSET到OP_TEST
@@ -571,7 +571,14 @@ static void discharge2anyreg (FuncState *fs, expdesc *e) {
   }
 }
 
-/* dst=src CP_XXX指令，将表达式的值拷贝给指定的寄存器reg, 参考 discharge2reg 函数注释*/
+/* dst=src CP_XXX指令，将表达式的值拷贝给指定的寄存器reg, 参考 discharge2reg 函数注释
+** 函数内部处理了e的所有悬而未决的事务
+**   包括给VJMP生成必要的LOADBOOL指令,给OP_TESTSET回填赋值的目标寄存器或优化成OP_TEST
+** 函数处理完毕后，整个表达式就全部处理完毕了。
+** 编译原理中的“总结者”的操作了 
+** 编译原理中的“总结者”的操作了
+** 编译原理中的“总结者”的操作了
+*/
 static void exp2reg (FuncState *fs, expdesc *e, int reg) {
   /* 将表达式的src.val赋值给dst(reg) */
   discharge2reg(fs, e, reg);
@@ -610,6 +617,7 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
 	  
       luaK_patchtohere(fs, fj);
     }
+	
     final = luaK_getlabel(fs);
 	/* 
 	** 对于OP_TESTSET指令，指令内部实现了赋值操作，
@@ -617,13 +625,18 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
 	** 对于其他的TEST指令则挂到p_f/p_t上 
 	*/
     patchlistaux(fs, e->f, final, reg, p_f);	
-    patchlistaux(fs, e->t, final, reg, p_t);
+    patchlistaux(fs, e->t, final, reg, p_t);	/* 回填OP_TESTSET中的跳转逻辑 */
   }
-  
-  e->f = e->t = NO_JUMP;
-  /* 经过dst.(reg) = src.val 后，表达式的值已在寄存器中且地址是reg */
-  e->u.s.info = reg;
-  e->k = VNONRELOC;
+
+  /* 整个表达式解析完毕，编译原理中的“总结者”的作用了 */
+  /* 整个表达式解析完毕，编译原理中的“总结者”的作用了 */
+  /* 整个表达式解析完毕，编译原理中的“总结者”的作用了 */
+   {
+	  e->f = e->t = NO_JUMP;
+	  /* 经过dst.(reg) = src.val 后，表达式的值已在寄存器中且地址是reg */
+	  e->u.s.info = reg;
+	  e->k = VNONRELOC;
+   }
 }
 
 /* 
@@ -679,11 +692,17 @@ void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
 ** 要处理诸如 tbl{[a>b] = 3},所以这里要区分hasjumps这种情况
 */
 void luaK_exp2val (FuncState *fs, expdesc *e) {
-  /* */
-  if (hasjumps(e))			/* tbl{[a>b] = 3} */
+  if (hasjumps(e)) {			
+  	/* 
+  	** tbl{[a>b] = 3} , print("abc" .. a>b), c > (a > b)
+  	** 诸如上面这些需要取得表达式a>b的情况而a>b本身还是个VJMP,没有生成取值指令，
+  	** 那么要补充取值的指令上来
+    */
     luaK_exp2anyreg(fs, e);	/* 求解表达式的src.val后，将表达式的值放到下一个free.reg中 */
-  else
-    luaK_dischargevars(fs, e);	/* 对间接表达式（原值不在reg中或不是直接值的）生成求值指令 */
+   } else {
+    /* 反之，对于 VNONRELOC, VRELOCABLE, VINDEXED... 等看情况生成必要的取值指令即可 */
+    luaK_dischargevars(fs, e);
+   }
 }
 
 /* 
@@ -693,6 +712,10 @@ void luaK_exp2val (FuncState *fs, expdesc *e) {
 ** "VINDEXED,VUPVAL,VGLOBAL,VARGVAR"     生成求值指令并加载到next'free'reg中
 **
 ** RETURNS: 表达式最终的RK索引
+**
+** 对表达式进行"终结"收尾处理，
+**  OP_EQ:生成待生成的LOAD_BOOL,回填对应的JMP
+**  OP_TESTSET: 回填悬挂的JMP，更新待赋值的R(A)，（优化成OP_TEST，这里好像没有进行此项操作）
 */
 int luaK_exp2RK (FuncState *fs, expdesc *e) {
   /* 对[间接]表达式e生成求值指令 */
@@ -960,14 +983,24 @@ static void codenot (FuncState *fs, expdesc *e) {
   */
   {lua_assert((e->k != VJMP) || !hasjumps(e));}
   { int temp = e->f; e->f = e->t; e->t = temp; }
-  
-  removevalues(fs, e->f);
+
+  /* 
+  ** 如果有悬挂的OP_TESTSET指令那么尝试将其优化 
+  ** 因为不需要将用OP_TESTSET指令将R(B)保持到R(A)中了
+  ** 这里只取值判断即可，后续若要将其保存到reg中eg(local a                    = not(a and b)),上面的OP_NOT指令
+  ** 实现了这个功能，如果不用将其保存到reg中(if (not (a and b)) THEN END则OP_NOT指令都会被优化为OP_TEST指令
+  */
+  removevalues(fs, e->f);	
   removevalues(fs, e->t);
 }
 
 /* 索引表达式t.k 
 ** info = table register; aux = index register (or `k') 
 ** eg: tbl(info).aux(aux) 
+** 
+** 先将k的exp加载到reg中(对于VJMP这种情况下的k(tbl[a>b]=c中的k=a>b),还需要补充相关的LOADBOOL指令
+** 后t->K--->VINDEXED 
+*/
 */
 void luaK_indexed (FuncState *fs, expdesc *t, expdesc *k) {
   t->u.s.aux = luaK_exp2RK(fs, k);

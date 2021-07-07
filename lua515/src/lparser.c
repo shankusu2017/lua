@@ -1055,9 +1055,17 @@ static void primaryexp (LexState *ls, expdesc *v) {
 		** OP_GETTABLE A B C R(A) := R(B)[RK(C)]
 		** exp = v[key] 前缀v不一定是VNONRELOC，在解析exp时，
 		** 需加载到reg中再解析后面的key
+		** 极端情况下eg:a>b[c]这种表达式也是合法的
+		** 所以这里需要先收尾v(生成求值指令或者对于VJMP补充LOADBOOL指令....)，再来处理key
 		*/
         luaK_exp2anyreg(fs, v);	/*  */
+
+		/* 解析key的exp */
         yindex(ls, &key);
+		
+		/* 先将key的exp加载到reg中(，
+		** 后v->K--->VINDEXED 
+		*/
         luaK_indexed(fs, v, &key);
         break;
       }
@@ -1071,7 +1079,7 @@ static void primaryexp (LexState *ls, expdesc *v) {
       }
       case '(': case TK_STRING: case '{': {  /* funcargs 函数调用 */
 	  	/* expr(arglist) 参数列表可能需要占用reg，这里需要将expr先存到reg中 */
-        luaK_exp2nextreg(fs, v);
+        luaK_exp2nextreg(fs, v);	/* 同'[]'的中的v字段的分析 */
         funcargs(ls, v);
         break;
       }
@@ -1473,8 +1481,6 @@ repeat
    statements
 until( condition )
 */
-
-
 static void repeatstat (LexState *ls, int line) {
   /* repeatstat -> REPEAT block UNTIL cond */
   int condexit;
@@ -1511,7 +1517,7 @@ static int exp1 (LexState *ls) {
   int k;	/* 这里的k:外层在编译器没有检查，在运行期，检查了相关的var的类型，这里可以省略 */
   expr(ls, &e);
   k = e.k;
-  /* 明白这里的1了么？1表示我需要将exp加载到下1个reg中
+  /* 明白这里的1了么？1表示我需要将exp加载到下1个reg中,即求表达式的值，且结果数量为1
   ** 秒吧，这个1
   */
   luaK_exp2nextreg(ls->fs, &e);	
