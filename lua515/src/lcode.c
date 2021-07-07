@@ -801,6 +801,8 @@ static void invertjump (FuncState *fs, expdesc *e) {
   */
   lua_assert(testTMode(GET_OPCODE(*pc)) && GET_OPCODE(*pc) != OP_TESTSET &&
                                            GET_OPCODE(*pc) != OP_TEST);
+  
+  /* OP_EQ, A B C   if ((RK(B) == RK(C)) ~= A) then pc++ */
   SETARG_A(*pc, !(GETARG_A(*pc)));
 }
 
@@ -813,9 +815,11 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   */
   if (e->k == VRELOCABLE) {	/* NOT exp 不用将保存结果，故而这里是VRELOCABLE */
     Instruction ie = getcode(fs, e);
+ 	/* OP_NOT  B	  R(A) := not R(B) */
     if (GET_OPCODE(ie) == OP_NOT) {
       fs->pc--;  /* remove previous OP_NOT */
-      return condjump(fs, OP_TEST, GETARG_B(ie), 0, !cond);
+	  /* OP_TEST A C if not (R(A) <=> C) then pc++ */ 
+      return condjump(fs, OP_TEST, GETARG_B(ie), 0, !cond);	
     }
     /* else go through */
   }
@@ -823,7 +827,7 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   freeexp(fs, e);
   
   /* if (R(B) <=> C) then R(A) := R(B) else pc++ 
-  ** 这里RA尚未填写，再回填这个跳转指令链表时会处理 patchtestreg
+  ** 这里RA尚未填写，回填这个跳转指令链表时会处理 patchtestreg
   */
   return condjump(fs, OP_TESTSET, NO_REG, e->u.s.info, cond);	
 }
@@ -943,7 +947,11 @@ static void codenot (FuncState *fs, expdesc *e) {
     }
   }
   
-  /* interchange true and false lists */
+  /* interchange true and false lists 
+  ** VJMP:f/t均为空
+  ** VNONRELOC/VRELOCABLE 交换t/f eg: local a = not (b and c)
+  */
+  {lua_assert((e->k != VJMP) || !hasjumps(e));}
   { int temp = e->f; e->f = e->t; e->t = temp; }
   
   removevalues(fs, e->f);
@@ -996,7 +1004,8 @@ static void codearith (FuncState *fs, OpCode op, expdesc *e1, expdesc *e2) {
   if (constfolding(op, e1, e2))
     return;
   else {
-    int o2 = (op != OP_UNM && op != OP_LEN) ? luaK_exp2RK(fs, e2) : 0;
+  	/* OP_NOT 有专用函数，不走这里, 故而下面无需判断OP_NOT */
+    int o2 = (op != OP_UNM && op != OP_LEN) ? luaK_exp2RK(fs, e2) : 0;	
     int o1 = luaK_exp2RK(fs, e1);
     /* 释放exp的规则是从后往前free */
     if (o1 > o2) {
@@ -1007,7 +1016,7 @@ static void codearith (FuncState *fs, OpCode op, expdesc *e1, expdesc *e2) {
       freeexp(fs, e2);
       freeexp(fs, e1);
     }
-	/* 这里R(A)的值尚未确定，e->=VRELOCABLE:表示需要重定位？ */
+	/* 这里R(A)的值尚未确定，e->=VRELOCABLE:表示表达式已求值，尚未写入到目的寄存器中 */
     e1->u.s.info = luaK_codeABC(fs, op, 0, o1, o2);
     e1->k = VRELOCABLE;
   }
@@ -1035,20 +1044,24 @@ static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
 
 /* local a = not b 
 ** 处理前缀操作符
+OP_UNM, 	A B		R(A) := -R(B)
+OP_NOT, 	A B		R(A) := not R(B)
+OP_LEN, 	A B		R(A) := length of R(B)
 */
 void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e) {
   expdesc e2;
   e2.t = e2.f = NO_JUMP;
   e2.k = VKNUM; e2.u.nval = 0;
   switch (op) {
-    case OPR_MINUS: {
+    case OPR_MINUS: {	/* OP_UNM, A B 	R(A) := -R(B) */
       if (!isnumeral(e))
         luaK_exp2anyreg(fs, e);  /* cannot operate on non-numeric constants */
       codearith(fs, OP_UNM, e, &e2);
       break;
     }
-    case OPR_NOT: codenot(fs, e); break;
-    case OPR_LEN: {
+    case OPR_NOT: codenot(fs, e); 	/* OP_NOT, 	A B 	R(A) := not R(B) */
+		break;
+    case OPR_LEN: {					/* OP_LEN, 	A B		R(A) := length of R(B) */
       luaK_exp2anyreg(fs, e);  /* cannot operate on constants */
       codearith(fs, OP_LEN, e, &e2);
       break;

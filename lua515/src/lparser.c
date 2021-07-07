@@ -1193,7 +1193,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
   /* 表达式前有一元操作符 - not # */
   if (uop != OPR_NOUNOPR) {
     luaX_next(ls);
-    subexpr(ls, v, UNARY_PRIORITY);
+    subexpr(ls, v, UNARY_PRIORITY);	/* 递归调用下去直到取到后面的操作数 */
     luaK_prefix(ls->fs, uop, v);
   } else {
   	simpleexp(ls, v);

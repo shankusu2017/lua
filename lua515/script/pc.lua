@@ -1,5 +1,27 @@
-local a = b[c>d]
-local a = b.(c>d)
+local a = not (b and c)
+
+-- if (not (a and b)) then
+-- 	local d = 10
+-- end
+
+-- local a = not (a > b)
+-- if (not (a > b)) then
+-- 	local d = 10
+-- end
+
+-- local d = not(a > b) and not (f > g)
+
+-- if (not (a > b)) then
+-- 	local d = 10
+-- end
+
+-- if (not true) then
+-- 	local d = 10
+-- end
+
+-- local a = b[c>d]
+--local a = b.(c>d)
+-- local c = #4
 
 --local a = (true).b
 
