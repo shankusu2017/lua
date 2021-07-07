@@ -564,6 +564,7 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
 
 /* 对 非已经CP_XXX到寄存器上的表达式(即：不是VNONRELOC表达式），生成CP_XXX指令到next.free.reg */
 static void discharge2anyreg (FuncState *fs, expdesc *e) {
+  /* 表达式的结果值已经在reg上则无需重复加载到reg上 */
   if (e->k != VNONRELOC) {
     luaK_reserveregs(fs, 1);
     discharge2reg(fs, e, fs->freereg-1);
@@ -813,16 +814,22 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond) {
   ** END
   ** 对着走一遍流程就理解这里if代码了
   */
-  if (e->k == VRELOCABLE) {	/* NOT exp 不用将保存结果，故而这里是VRELOCABLE */
+  if (e->k == VRELOCABLE) {	/* 表达式的结果尚未保存到reg */
     Instruction ie = getcode(fs, e);
- 	/* OP_NOT  B	  R(A) := not R(B) */
-    if (GET_OPCODE(ie) == OP_NOT) {
+  	/* 表达式还是一个OP_NOT的，那就无需保存结果，只需要用到R(B)参数即可，
+  	** 不用先 R(A) = not R(B)， 再去判断R(A)和cond的关系，而是一步到位
+  	** 直接用R(B)和!cond判断即可 
+  	*/
+  	/* OP_NOT  B	  R(A) := not R(B) */
+    if (GET_OPCODE(ie) == OP_NOT) {	
       fs->pc--;  /* remove previous OP_NOT */
 	  /* OP_TEST A C if not (R(A) <=> C) then pc++ */ 
       return condjump(fs, OP_TEST, GETARG_B(ie), 0, !cond);	
     }
     /* else go through */
   }
+
+  /* 将表达式的值加载到reg中，以便后面的OP_TESTEST指令对其进行评估 */
   discharge2anyreg(fs, e);
   freeexp(fs, e);
   
