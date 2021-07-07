@@ -1394,6 +1394,16 @@ static int cond (LexState *ls) {
   expr(ls, &v);  /* read condition */
   
   if (v.k == VNIL) v.k = VFALSE;  /* `falses' are all equal here */
+
+  /* 这里不一定要将表达式的结果保存到reg中后，才对其评估，跳转
+  ** eg ：if (4) then end
+  **      if (a>b) then statment end
+  **      if (not a) then statment end
+  **      上面都无需先将exp的结果保存到reg中
+  **
+  ** 所以这里没有 discharge2anyreg(fs, e)
+  */
+  
   
   luaK_goiftrue(ls->fs, &v);
   return v.f;
