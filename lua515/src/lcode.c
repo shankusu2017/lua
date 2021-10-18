@@ -896,14 +896,21 @@ void luaK_goiftrue (FuncState *fs, expdesc *e) {
       **                  end
       **    即条件判断失败则跳转的逻辑
       */
-      pc = jumponcond(fs, e, 0); 
+      pc = jumponcond(fs, e, 0); 	/* 这里的0结合OP_TESTSET指令一起看 */
       break;
     }
   }
-  
-  luaK_concat(fs, &e->f, pc);  /* insert last jump in `f' list */
 
-  /* 条件为true,则go thorught */
+  /* if (a and b) 
+  ** 这里 cond为假时，false.jmp的跳转地址还尚未确定
+  */
+  luaK_concat(fs, &e->f, pc);  /* insert last jump in `f' list */
+  
+
+  /* 条件为true,则go thorught 
+  ** 对于 luaK_infix 中的OP_TESTSET这里无用(哪个指令没有true.jmp.list-为true继续判断后面的reg即可不用额外的跳转)
+  ** 对于 if (cond) 这里起到了作用
+  */
   luaK_patchtohere(fs, e->t);	
   e->t = NO_JUMP;	/* 已经将待回填的truelist挂到fs->jpc上了，这里置空 */
 }
@@ -1001,7 +1008,6 @@ static void codenot (FuncState *fs, expdesc *e) {
 ** 先将k的exp加载到reg中(对于VJMP这种情况下的k(tbl[a>b]=c中的k=a>b),还需要补充相关的LOADBOOL指令
 ** 后t->K--->VINDEXED 
 */
-*/
 void luaK_indexed (FuncState *fs, expdesc *t, expdesc *k) {
   t->u.s.aux = luaK_exp2RK(fs, k);
   t->k = VINDEXED;
@@ -1044,7 +1050,10 @@ static void codearith (FuncState *fs, OpCode op, expdesc *e1, expdesc *e2) {
   if (constfolding(op, e1, e2))
     return;
   else {
-  	/* OP_NOT 有专用函数，不走这里, 故而下面无需判断OP_NOT */
+  	/* 
+  	** OP_NOT 有专用函数，不走这里, 故而下面无需判断OP_NOT 
+  	** luaK_exp2RK将终结悬挂在e1, e2上的可能t/f jump(eg: a + (b > c))收尾处理
+    */
     int o2 = (op != OP_UNM && op != OP_LEN) ? luaK_exp2RK(fs, e2) : 0;	
     int o1 = luaK_exp2RK(fs, e1);
     /* 释放exp的规则是从后往前free */
@@ -1056,7 +1065,12 @@ static void codearith (FuncState *fs, OpCode op, expdesc *e1, expdesc *e2) {
       freeexp(fs, e2);
       freeexp(fs, e1);
     }
-	/* 这里R(A)的值尚未确定，e->=VRELOCABLE:表示表达式已求值，尚未写入到目的寄存器中 */
+	
+	/* var = exp1 op exp2
+	** 运算符的操作数(exp1,exp2)的估值指令已生成，运算符的指令也已生成
+	** 但目的寄存器(var)尚未确定下来,有可能需要var有可能不需要(eg: if (exp1 op exp2) 或
+	**   locac var = exp1 op exp2)
+	*/
     e1->u.s.info = luaK_codeABC(fs, op, 0, o1, o2);
     e1->k = VRELOCABLE;
   }
@@ -1110,9 +1124,20 @@ void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e) {
   }
 }
 
-/* infix: 中缀 a = b + c 解析c之前先处理 '+' */
+/* infix: 中缀 a = exp1 + exp2 解析exp2前，根据操作符来处理exp1 */
 void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   switch (op) {
+  	/*  
+  	** 将v加载到寄存器,生成OP_TESTSET指令， OP_TESTSET   	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++ 
+  	**
+  	** 1. 由于此时false.out未知，故而生成false.jmp后，待跳转的位置待定，等待后续回填
+  	** 2. 而若(R(B)==false)则指令将值赋给了R(A)，R(A)尚为确定地址(if (a and b) 
+  	**        这种就不需要R(A)的地址，所以函数尚未明确R(A)的地址，
+  	**        因为这里还不确定时候需要RA的地址(a = b and c 这种情况才需要))
+  	** 综合上述2点luaK_goiftrue已实现了OPR_AND的语义：
+  	**   R(B)为假时，赋值假值给R(A), 同时提前结束后续的指令，
+  	**   R(B)为真则继续接着处理后面的表达式
+  	*/
     case OPR_AND: {
       luaK_goiftrue(fs, v);
       break;
@@ -1121,13 +1146,21 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
       luaK_goiffalse(fs, v);
       break;
     }
+	/* 由于OP_CONCAT的实际实现方式，这里必须将exp复制一份到stack上
+	** 理论上来说 local a = b .. c .. d 知道了b,c,d的地址就可以将其合并
+	**   但是，如果将他们复制到statck且地址是连续的，那么实际实现起来，会容易些，同时
+	**   也能照顾到c= 1>2这种还有悬挂的jmp的情况
+	**   所以这里就这样重复COPY一份到stack上了
+	*/
     case OPR_CONCAT: {
       luaK_exp2nextreg(fs, v);  /* operand must be on the `stack' */
       break;
     }
     case OPR_ADD: case OPR_SUB: case OPR_MUL: case OPR_DIV:
     case OPR_MOD: case OPR_POW: {
-      if (!isnumeral(v)) luaK_exp2RK(fs, v);
+	  /* 纯数值则考虑表达式合并 eg: local a = 10 + 5直接将exp1(10) 和exp2(5)合并成15 */
+      if (!isnumeral(v))
+	  	luaK_exp2RK(fs, v);	
       break;
     }
     default: {	/* 关系运算符 */
@@ -1137,16 +1170,22 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v) {
   }
 }
 
-/* a = b + c 解析完c之后，将b+c合并(b+c)作为一个exp 
+/* a = b + c 解析完c之后，将b+c合并作为一个exp 
 ** TODOREAD KEYFUN
 */
 void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
   switch (op) {
     case OPR_AND: {
-	  /* b and c 
-	  ** 解析完b时，b的true.jmp.list已被置空，且挂到了fs->jpc上(即下一条即将生成的指令)
+	  /* b and c, b为ture则指令流自动顺延到解析c来，不用跳转，故而如果这里出现了跳转，
+	  ** 那就是解析b后，收尾的处理出现了Fatal err
 	  */
       lua_assert(e1->t == NO_JUMP);  /* list must be closed */
+
+	  /* 
+	  ** 生成估值指令，由于还不知道是 local var = exp1 and exp2
+	  **   还是if (exp1 and exp2),那种情况故而无需生成赋值指令(第一种情况)和判断跳转指令(第二种情况)
+	  **   这里将上述待完成的逻辑交给上层处理(本函数完成接口要求中的求值exp的功能即可)
+	  */
       luaK_dischargevars(fs, e2);
 	
 	  /* 合并false.jmp.list 
@@ -1156,6 +1195,10 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
 	  ** 所有的表达式a,b,c..的false.jump的目的地都是一样的(whilestat结束后的第一条指令)
 	  */
       luaK_concat(fs, &e2->f, e1->f);
+	  /* 
+	  ** 拷贝了e1->f到e2->f之后，e1的作用域也就此为止了，下面将e2覆盖到e1上也就顺理成章
+	  ** 同时也完成了(a and b)中将a和b合并成一个表达式的功能要求
+	  */
       *e1 = *e2;
       break;
     }

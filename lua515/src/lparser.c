@@ -1214,9 +1214,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
     BinOpr nextop;
     luaX_next(ls);
 	
-	/* a = b + c * d 解析操作符左边的表达式b
-	** 进入解析c表达式的操作前，将b表达式存一个档
-	*/
+	/* var = exp1 + exp2 解析操作符左边的表达式exp1 */
     luaK_infix(ls->fs, op, v);
 	
     /* read sub-expression with higher priority 
@@ -1226,7 +1224,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, unsigned int limit) {
 	*/
     nextop = subexpr(ls, &v2, priority[op].right);
 
-	/* 将b+(c*d)组合起来作为一个整体表达式返回给上层逻辑 */
+	/* 将exp1+exp2组合起来作为一个整体表达式返回给上层逻辑 */
     luaK_posfix(ls->fs, op, v, &v2);
     op = nextop;
   }

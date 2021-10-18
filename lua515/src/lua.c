@@ -375,6 +375,11 @@ static int pmain (lua_State *L) {
 
 
 int main (int argc, char **argv) {
+  {
+    int a, b = 0;
+    printf("%d", b);
+    printf("hello world!");
+  }
   int status;
   struct Smain s;
   lua_State *L = lua_open();  /* create state */
