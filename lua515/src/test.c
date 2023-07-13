@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
        printf("load file fail, ret(%d)", ret);
        return -2;
    }
-   printf("parse doen......")
+   printf("parse doen......");
   //  printf("execute lua.script\n");
    {
         // lua_pushnumber(vm, 1);

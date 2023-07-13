@@ -21,7 +21,7 @@
 
 /* 
 ** 
-/* 和lstring的闭散列不同，这里采用的是开散列算法                    https://blog.csdn.net/Boring_Wednesday/article/details/80316884
+/* 和lstring的开散列不同，这里采用的是闭散列算法                    https://blog.csdn.net/Boring_Wednesday/article/details/80316884
 ** 结合gc流程和table'insert的流程来看
 **
 ** tbl[k]=nil,若k仅被此表引用,则此k会被gc回收,for中进行tbl[k]=nil的操作，并不会修改影响表遍历的完整性

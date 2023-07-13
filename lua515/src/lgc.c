@@ -116,7 +116,7 @@ static void reallymarkobject (global_State *g, GCObject *o) {
       return;
     }
     case LUA_TFUNCTION: {
-      gco2cl(o)->c.gclist = g->gray;
+      gco2cl(o)->c.gclist = g->gray;	/* 挂到待扫描的gray链表上 */
       g->gray = o;
       break;
     }
